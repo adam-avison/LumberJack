@@ -57,7 +57,9 @@ Calc theo rms---> Sigma clip until rms in data match theo rms
 
 Tsys=75.5  # Average Tsys taken from AQUA
 msname='uid___A002_X7fb89e_X6e1.ms.split.cal'
+
 SPW=0
+numChan=3840
 
 targ='IRAS_16293-2422'
 secondaryFile=targ+'_SecondarySources.txt'
@@ -86,19 +88,29 @@ print sourceFields
 
 #-- 1.5) In second version loop around detected continuum sources.
 secondarySources=np.genfromtxt(secondaryFile, dtype=None, names=['souNum','secRA','secDec','secBmaj','secBmin','secPA'])
-combTheoRMS=theoRMS/np.sqrt(float(len(secondarySources['souNum'])))
 
+#- How many sources?
 
-for x in range(len(secondarySources['souNum'])):
-    source_no=re.split('source',secondarySources['souNum'][x])[1]
-    position=secondarySources['secRA'][x]+'\t'+secondarySources['secDec'][x]
-    thisBmaj=str(secondarySources['secBmaj'][x])+'arcsec'
-    thisBmin=str(secondarySources['secBmin'][x])+'arcsec'
-    thisPA=str(secondarySources['secPA'][x])+'deg'
+try: 
+    useRange = len(secondarySources['souNum'])
+except TypeError:
+    useRange = 1
+
+for x in range(useRange):
+    if useRange == 1:
+        source_no=re.split('source',str(secondarySources['souNum']))[1]
+        position=secondarySources['secRA']+'\t'+secondarySources['secDec']
+        thisBmaj=str(secondarySources['secBmaj'])+'arcsec'
+        thisBmin=str(secondarySources['secBmin'])+'arcsec'
+        thisPA=str(secondarySources['secPA'])+'deg'
+    else:
+        source_no=re.split('source',secondarySources['souNum'][x])[1]
+        position=secondarySources['secRA'][x]+'\t'+secondarySources['secDec'][x]
+        thisBmaj=str(secondarySources['secBmaj'][x])+'arcsec'
+        thisBmin=str(secondarySources['secBmin'][x])+'arcsec'
+        thisPA=str(secondarySources['secPA'][x])+'deg'
 
     print "\n >>>"+source_no+" "+position+" "+thisBmaj+" "+thisBmin+" "+thisPA
-
-
 
     #-- 2) Load associated spectrum / or generate one from image !
 
@@ -277,9 +289,13 @@ for x in range(len(secondarySources['souNum'])):
 
 #========== PART 2 ============================================#
 #---- GET ALL THE LINE FREE FILES CLEAR THE UNQIUE SET --------#
-useThis=np.zeros(3840)
-for x in range(len(secondarySources['souNum'])):
-    source_no=re.split('source',secondarySources['souNum'][x])[1]    
+useThis=np.zeros(numChan)
+for x in range(useRange):
+
+    if useRange == 1:
+        source_no=re.split('source',str(secondarySources['souNum']))[1]    
+    else:
+        source_no=re.split('source',secondarySources['souNum'][x])[1]    
 
     thisSPWstr=open(targ+'_sourceNo_'+source_no+'_SPW_'+str(SPW)+'_LineFreeChans.txt','r')
     for line in thisSPWstr: 
@@ -294,11 +310,14 @@ for x in range(len(secondarySources['souNum'])):
         useThis[ch]+=1
     thisSPWstr.close()
 
+    smoothUseThis=smoothLineFree(useThis,useRange)
     
-allSourceUseChans=np.where(useThis==len(secondarySources['souNum']))[0]
+allSourceUseChans=np.where(smoothUseThis==useRange)[0]
 
 allSourceSpwString=numpyToSPWString(SPW,allSourceUseChans)
+allSourceSpwStringChunk=chunkChanSPWformat(allSourceSpwString)
+
 allSourceOutSPW = open(targ+'_allSource_SPW_'+str(SPW)+'_LineFreeChans.txt','w')
-print >> allSourceOutSPW,  allSourceSpwString
+print >> allSourceOutSPW,  allSourceSpwStringChunk
 allSourceOutSPW.close()
 
