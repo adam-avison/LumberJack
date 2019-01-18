@@ -188,7 +188,7 @@ for x in range(len(secondarySources['souNum'])):
     iqr = q75 - q25
     bin_widths=2.0*iqr*(len(binX)**(-1.0/3.0))
     num_bins=(np.max(binX)-np.min(binX))/bin_widths
-    print bin_widths,num_bins,'!!! BREAD !!!'
+    #print bin_widths,num_bins,'!!! BREAD !!!'
 
 
     valsSC,binsCent=np.histogram(newS[np.where(newS!=0.0)],bins=np.ceil(num_bins))
