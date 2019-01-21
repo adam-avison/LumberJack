@@ -1,10 +1,3 @@
-""" TO DO:
-
-1) GIVE A POSITION IN RA & DEC
-2) CONVERT THAT TO RADIANS
-3) MAKESURE THE SPEC FILENAME DOESN'T OVERWRITE
-
-"""
 import re
 import numpy as np
 import os
@@ -27,41 +20,52 @@ from measFuncs import*
 #--- Main Body of Code ---#
 #-------------------------#
 
-""" User will need to input:
-- a CASA MS to derive observing properties
-- a fits/CASA image or a txt file spectrum to run the continuum finder on <-- GENERATE
-- a target name (else it will use first in OBSERVE_TARGET source... for now). [optional]
+""" LUMBERJACK 'LITE' VERSION
 
-so syntax would be funcName(ms=<my.MS>,target=<some name>, spw=<some spw>)
+A SCRIPTED VERSION OF THE LUMBERJACK TASK
+- Created by A.Avison Jan-2019
+
+--- INPUT ----
+
+ User will need to input the following below:
+- Spectral Window Number (as paramter SPW)
+- Target name (as parameter targ)
+- Observation Tsys (parameter Tsys [in K] can be taken from qa/ report).
+- Name of measurement set (parameter msname)
+- The number of channels in your spectral window (parameter numChan, can be found in listobs)
 
 
-Calc theo rms---> Sigma clip until rms in data match theo rms
+In the current directory you will need:
+- A calibrated measurement set containing your target data
+- A list of sources in the field in a file named <target_name>+_SecondarySources.txt
+    - The format of this file is:
+    sourceX     RA[hh:mm:ss.000]    Dec[dd:mm:ss.000]   Bmaj*   Bmin*   BPA*
+
+    *fitted 2D Gaussian major, minor axis and position angle.
+- The un-tarred Functions201*.tar directory.
+
+--- OUTPUT ---
+
+For each SPW and source listed in *_SecondarySources.txt you will get:
+
+- An output txt file named <target_name>_sourceNo_<#>_SPW_<SPW>_LineFreeChans.txt. This contains the line free channels at that position.
+
+- Two PNG images:
+    - <target_name>_sourceNo_<#>_SPW_<SPW>_lineFree.png which shows the spectrum and line free chans
+    - <target_name>_sourceNo_<#>_SPW_<SPW>_gaussPlot.png which shows a histogram of the flux values of line free channels.
+
+- A txt file named <target_name>_allSource_SPW_<SPW>_LineFreeChans.txt which combines the values from each source and 'chunks' them in to a CASA SPW string format. e.g. 25:1~30;33~81;84~526;544~591;594~1760;1783~1852;1856~1868;1871~1898;1901~1917
 
 """
-
-##-- 0) Testing parameters
-#
-#msname=cwd+'/calibrated_12m.ms'
-#SPW=2
-#targ='iras16272-4837'
-##--- Find raw MS listobs and tsystables --'
-##tmpcwd=
-#tsysTable,MSlistobsFile=whereIsEverything(cwd)
-#
-##print type(tsysTable)
-#
-#Tsys=getTsysValue(tsysTable,MSlistobsFile,SPW,msname)
-#
-
 #---------- LITE VERSION ---------------#
+#--- USER INPUT PARAMS
+Tsys=60.0  # Average Tsys taken from AQUA or qa/ directory plats
+msname='../uid___A002_Xb046c2_X3b39.ms.split.cal'
+StdDevFactor=1.5
+SPW=2
+numChan=240
 
-Tsys=75.5  # Average Tsys taken from AQUA
-msname='uid___A002_X7fb89e_X6e1.ms.split.cal'
-
-SPW=0
-numChan=3840
-
-targ='IRAS_16293-2422'
+targ='ngc3256'
 secondaryFile=targ+'_SecondarySources.txt'
 
 #--- 0.5) Take listobs of an MS and recover the useful information.
@@ -91,7 +95,7 @@ secondarySources=np.genfromtxt(secondaryFile, dtype=None, names=['souNum','secRA
 
 #- How many sources?
 
-try: 
+try:
     useRange = len(secondarySources['souNum'])
 except TypeError:
     useRange = 1
@@ -158,18 +162,17 @@ for x in range(useRange):
     #-- 2.5) Test plots
     testPlots(freq,S,'black')
 
-   
+
     #--- 2.75) Tidy up the data (i.e. remove absorption , weird end chans etc etc)
     #--- and obvisous spectral lines
 
     #--- get brightline emission
     psd_rms,poss_lines,scale_limits=specFit(S)
-
+    poss_lines=poss_lines*0.0 #-- THIS IS NOT USED SO SET TO ZERO
     #--- define where lines aren't
     poss_not_lines=(1.0-poss_lines)#*(np.max(S)*1.02)#last bit jsut for scaling
-
     lineless_S=poss_not_lines*S
-    testPlots(freq,poss_not_lines*(np.max(S)*0.5),'c')
+    #testPlots(freq,poss_not_lines*(np.max(S)*0.5),'c')
 
 
     #-- 3) Sigma clipping loop... explained in calcFuncs.py
@@ -181,12 +184,6 @@ for x in range(useRange):
     highFreq,highCh,highS=whereHighGrad(gradFreq,gradS,2.0*theoRMS)
     gradyS=newS[highCh]
     gradyS=gradyS[np.where(gradyS!=0.0)]
-
-    #-- 5) Test plots
-    #testPlots(gradFreq,gradS,'white')
-    #testPlots(highFreq,highS,'blue','+',"None")
-    #testPlots([np.min(freq), np.max(freq)],[2.0*theoRMS, 2.0*theoRMS],'red')
-    #testPlots([np.min(freq), np.max(freq)],[-theoRMS*2.0, -theoRMS*2.0],'red')
 
     #-- 6) Gaussian tests
 
@@ -246,7 +243,7 @@ for x in range(useRange):
     print " >>> --------"
 
     #---  SD
-    StdDevFactor=1.0
+
     testPlots(freq[np.where(np.logical_and(S>=(poptSC[1]-StdDevFactor*poptSC[2]), S<=(poptSC[1]+StdDevFactor*poptSC[2])))],S[np.where(np.logical_and(S>=(poptSC[1]-StdDevFactor*poptSC[2]), S<=(poptSC[1]+StdDevFactor*poptSC[2])))],'magenta','.','none')
 
     testPlots([np.min(freq), np.max(freq)],[(poptSC[1]-StdDevFactor*poptSC[2]),poptSC[1]-StdDevFactor*poptSC[2]],'magenta')
@@ -293,31 +290,30 @@ useThis=np.zeros(numChan)
 for x in range(useRange):
 
     if useRange == 1:
-        source_no=re.split('source',str(secondarySources['souNum']))[1]    
+        source_no=re.split('source',str(secondarySources['souNum']))[1]
     else:
-        source_no=re.split('source',secondarySources['souNum'][x])[1]    
+        source_no=re.split('source',secondarySources['souNum'][x])[1]
 
     thisSPWstr=open(targ+'_sourceNo_'+source_no+'_SPW_'+str(SPW)+'_LineFreeChans.txt','r')
-    for line in thisSPWstr: 
+    for line in thisSPWstr:
         nuline=re.sub(str(SPW)+':','',line)
         nuline=re.sub('\n','',nuline)
 
     nuline2=re.split(';',nuline)
     nulineNP=np.asarray(nuline2,dtype=np.int)
-    
+
     for chan in nuline2:
         ch=int(chan)
         useThis[ch]+=1
     thisSPWstr.close()
 
     smoothUseThis=smoothLineFree(useThis,useRange)
-    
+
 allSourceUseChans=np.where(smoothUseThis==useRange)[0]
 
 allSourceSpwString=numpyToSPWString(SPW,allSourceUseChans)
-allSourceSpwStringChunk=chunkChanSPWformat(allSourceSpwString)
+allSourceSpwStringChunk=chunkChansSPWformat(allSourceSpwString)
 
 allSourceOutSPW = open(targ+'_allSource_SPW_'+str(SPW)+'_LineFreeChans.txt','w')
 print >> allSourceOutSPW,  allSourceSpwStringChunk
 allSourceOutSPW.close()
-
