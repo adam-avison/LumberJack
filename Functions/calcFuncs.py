@@ -28,7 +28,7 @@ def imCellSize(msname,spw):
      #--- spw cent freq
      sciFreqs=aU.getScienceFrequencies(msname)
      imFreq=sciFreqs[spw]
-     
+
      #--- Calc resolution
      res=((c/imFreq)/maxBline)*(180.0/np.pi)*3600.0
      FoV=((c/imFreq)/12.0)*(180.0/np.pi)*3600.0
@@ -52,9 +52,9 @@ def whereHighGrad(gradFreq,gradFlux,theoRMS):
     #--- Find channels with gradient <2x theorms
     moduGradFlux = np.sqrt(gradFlux**2.0)
     gradFlux[np.where(moduGradFlux<(2.0*theoRMS))]
-    gradFluxIndx = (np.where(moduGradFlux<(2.0*theoRMS))[0]) 
+    gradFluxIndx = (np.where(moduGradFlux<(2.0*theoRMS))[0])
     gradHighFreq=gradFreq[gradFluxIndx]
-        
+
     return gradHighFreq, gradFluxIndx, gradFlux[np.where(moduGradFlux<(2.0*theoRMS))]
 
 
@@ -77,11 +77,11 @@ def calcSens(numAnts,BW,t_int,Tsys,diam):
 
 
 def sigmaClipperSTD(ch,S,clip_level=2.0,tol=95.5):
-    """0) Take all data, derive a median and standard deviation. 
+    """0) Take all data, derive a median and standard deviation.
        1) Exclude all data point which are > median+(clip_level*std) or < median-(clip_level*std)
        2) Caculate stdLev which is ((oldStdDev - newStdDev)/newstdDev): if stdLev > tol (entered as a %age) stop, else continue
        3) Calculate SNR (Peak/medianS), if it starts increasing stop.
-       4) If the remaining channels == 0 stop. 
+       4) If the remaining channels == 0 stop.
 
     """
 
@@ -108,13 +108,13 @@ def sigmaClipperSTD(ch,S,clip_level=2.0,tol=95.5):
             print " >>> Peak flux across all channels: "+str(peakS)
             print " >>> Std Dev. across all channels: "+str(stdS)
             print " >>> SNR = "+str(SNR)
-          
+
             print oldStd, stdS, '!----!'
             print (stdS/oldStd)*100.0
             stdLev= (oldStd-stdS)/stdS
             print stdLev
 
-            #Want points where value is between median +/- alpha*stdS 
+            #Want points where value is between median +/- alpha*stdS
             tru=np.where(np.logical_and(S>medianS-(clip_level*stdS),S<medianS+(clip_level*stdS)))[0]
             print medianS-(clip_level*stdS),medianS+(clip_level*stdS)
             newS=np.zeros(len(S))
@@ -132,7 +132,7 @@ def sigmaClipperSTD(ch,S,clip_level=2.0,tol=95.5):
 
         oldSNR=SNR
         oldStd=stdS
-            
+
     return ch, newS, meanS, stdS
 
 def gauss(x,a,b,c):
@@ -142,7 +142,7 @@ def gauss(x,a,b,c):
 
 def specFit(fl_data):
         """ Try to tidy up data by removing absorption,obvious emission and  edge channels based on 2012 SpecFit.py by me! """
-        freq_naxis=len(fl_data)          
+        freq_naxis=len(fl_data)
         mean_flux=sum(fl_data)/freq_naxis                  #of all channels
         median_flux=np.median(fl_data)
         print "Mean flux across all channels: "+str(mean_flux)
@@ -190,7 +190,7 @@ def specFit(fl_data):
         v=0
         l=0
         for ii in fl_data:
-            if ii >(highpass*pseudo_rms) or ii <(-highpass*pseudo_rms):                       
+            if ii >(highpass*pseudo_rms) or ii <(-highpass*pseudo_rms):
                 l=l+1
                 line_regions_highrms[v]=line_val_highrms
                 baseline_use_regions[v]=0
@@ -225,7 +225,7 @@ def specFit(fl_data):
         vv=0
         ll=0
         for iii in fl_data:
-            if iii >(scale_limits*2.0*pseudo_rms) and iii <(scale_limits*3.0*pseudo_rms) :                      
+            if iii >(scale_limits*2.0*pseudo_rms) and iii <(scale_limits*3.0*pseudo_rms) :
                 ll=ll+1
                 line_regions_lowrms[vv]=line_val_lowrms
                 baseline_use_regions[vv]=0
@@ -273,7 +273,7 @@ def specFit(fl_data):
         smoothed_lr=np.zeros(freq_naxis)
         for smlr in smoothed_lr:
             if smoothed_lr_f[vv] >=3.0 or smoothed_lr_b[vv]>=3.0:
-                smoothed_lr[vv]=(smoothed_lr_b[vv]+smoothed_lr_f[vv])   
+                smoothed_lr[vv]=(smoothed_lr_b[vv]+smoothed_lr_f[vv])
             vv=vv+1
 
         smooth_window_length=20
@@ -282,9 +282,9 @@ def specFit(fl_data):
         vvw=0
         for bz in smoothed_lr:
             if smoothed_lr[vvw] >0.0:
-                smoothed_lr[vvw]=1.0   
+                smoothed_lr[vvw]=1.0
             vvw=vvw+1
-        
+
         linesHere=smoothed_lr[(smooth_window_length/2):(freq_naxis+(smooth_window_length/2))]
         return pseudo_rms, linesHere, scale_limits
 
@@ -338,13 +338,13 @@ def smooth(x,window_len=11,window='hanning'):
         w=np.ones(window_len,'d')
     else:
         w=eval('np.'+window+'(window_len)')
-            
+
     y=np.convolve(w/w.sum(),s,mode='valid')
     return y
 
 def deAbsorb(fl_data,theoRMS):
         """ Try to tidy up data by removing absorption and edge channels, this is a bit weak and could be re-written"""
-        freq_naxis=len(fl_data)          
+        freq_naxis=len(fl_data)
         mean_flux=sum(fl_data)/freq_naxis                  #of all channels
         median_flux=np.median(fl_data)
         print "Mean flux across all channels: "+str(mean_flux)
@@ -374,7 +374,7 @@ def chunkChansSPWformat(spwString):
         if iCh-prevCh == 1 or iCh-prevCh == 2 or iCh-prevCh == 3:
             endCh=iCh
             prevCh=iCh
-            
+
         else:
             if endCh<0:
                 print 'Collapsing down line free channels'
@@ -382,7 +382,7 @@ def chunkChansSPWformat(spwString):
                 chunkedChans += str(startCh)+';'
             else:
                 chunkedChans += str(startCh)+'~'+str(endCh)+';'
-               
+
             startCh=iCh
             prevCh=iCh
 
@@ -393,18 +393,17 @@ def chunkChansSPWformat(spwString):
     splitSemiCol = re.split(';',chunkedChans)
     finChunked = re.split('~',splitSemiCol[0])[0]
     for regs in range(len(re.split(';',chunkedChans))):
-        
+
 
         if regs > 0:
             if int(re.split('~',splitSemiCol[regs])[0]) -int(re.split('~',splitSemiCol[regs-1])[1]) > 10:
-                print 'big gap adding buffer'
-                print str(int(re.split('~',splitSemiCol[regs-1])[1])-4)+';'+str(int(re.split('~',splitSemiCol[regs])[0])+4)
+                4)+';'+str(int(re.split('~',splitSemiCol[regs])[0])+4)
                 finChunked += '~'+str(int(re.split('~',splitSemiCol[regs-1])[1])-4)+';'+str(int(re.split('~',splitSemiCol[regs])[0])+4)
             else:
-                print re.split('~',splitSemiCol[regs-1])[1]+';'+re.split('~',splitSemiCol[regs])[0]
+                1])[1]+';'+re.split('~',splitSemiCol[regs])[0]
                 finChunked += '~'+re.split('~',splitSemiCol[regs-1])[1]+';'+re.split('~',splitSemiCol[regs])[0]
-            
-    
+
+
         if regs == len(re.split(';',chunkedChans))-1:
             finChunked += '~'+re.split('~',splitSemiCol[regs])[1]
 
@@ -448,7 +447,7 @@ def chunkChansSPWformat(spwString):
             print " >>> Std Dev. across all channels: "+str(stdS)
             print " >>> SNR = "+str(SNR)
 
-       
+
             tru=np.where(S<clip_level*peakS)[0]
             newS=np.zeros(len(S))
             tmpS=S
@@ -465,6 +464,6 @@ def chunkChansSPWformat(spwString):
 
         oldSNR=SNR
         oldStd=stdS
-        
+
 
     return ch, newS, meanS, stdS"""
