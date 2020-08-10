@@ -1,4 +1,4 @@
-# LumberJack ![LJ Logo](figures/LJ_logo.png)
+# LumberJack ![LJ Logo](https://github.com/adam-avison/LumberJack/tree/master/figures/LJ_Logo.png)
 CASA task and associated scripts/functions to find spectral line free channels in ALMA data.
 
 ## STATUS: LumberJack being updated week of 10-Aug-2020
