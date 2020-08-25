@@ -37,5 +37,9 @@ secsour             =         ''        #  File with positions and properties of
                                         #   Secondary Sources
 stddevfact          =         ''        #  Standard deviation factor
 ```
+#### To build Linux Version
+Coming soon...
 
- ### Lite version
+___
+
+### Lite version
