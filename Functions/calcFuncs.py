@@ -2,20 +2,25 @@ import numpy as np
 import re
 import sys
 
-sys.path.insert(0,'/local/scratch/aavison/ALMA/QA2/jao-mirror/AIV/science/analysis_scripts/')
+auPath = '<PATH TO ANALYSIS UTILS>' #you can download AnalysisUtils from https://casaguides.nrao.edu/index.php/Analysis_Utilities
+sys.path.insert(0,auPath)
 import analysisUtils as aU
 
 """TO DO: Calcsensitivity for inhomogenous array"""
 
-def smoothLineFree(LFCs,sourNo):
+def smoothLineFree(LFCs,sourNo,numCh):
     cpLFCs = np.copy(LFCs)
     lineChans=np.where(cpLFCs==0.0)[0]
     for lineChan in lineChans:
-        if lineChan<len(cpLFCs)-1:
-            if cpLFCs[lineChan-1] == sourNo and cpLFCs[lineChan+1] == sourNo:
-                cpLFCs[lineChan]=sourNo
-            elif cpLFCs[lineChan-1] == sourNo and cpLFCs[lineChan+2] == sourNo:
-                cpLFCs[lineChan]=sourNo
+        if lineChan < int(numCh)-2:
+            if lineChan<len(cpLFCs)-1:
+                if cpLFCs[lineChan-1] == sourNo and cpLFCs[lineChan+1] == sourNo:
+                    cpLFCs[lineChan]=sourNo
+                elif cpLFCs[lineChan-1] == sourNo and cpLFCs[lineChan+2] == sourNo:
+                    cpLFCs[lineChan]=sourNo
+            elif lineChan == len(cpLFCs):
+                if cpLFCs[lineChan-1] == sourNo:
+                    cpLFCs[lineChan]=sourNo
 
     return cpLFCs
 
@@ -386,26 +391,39 @@ def chunkChansSPWformat(spwString):
             startCh=iCh
             prevCh=iCh
 
-
-
     chunkedChans = chunkedChans[:-1]
+    print chunkedChans
+
+
+
     #--- Add a bit of a buffer to lines > 10 chans wide
     splitSemiCol = re.split(';',chunkedChans)
-    finChunked = re.split('~',splitSemiCol[0])[0]
+    finChunked = re.split(':',splitSemiCol[0])[0]+':'
+    buffChans = 4
+
     for regs in range(len(re.split(';',chunkedChans))):
+        #print regs, splitSemiCol[regs]
+        if regs==0:
+            if re.search('~',splitSemiCol[regs]):
+                endCh = int(re.split('~',splitSemiCol[regs])[1])-buffChans
+                startCh = int(re.split('~',re.split(':',splitSemiCol[regs])[1])[0])
+                if not startCh > endCh:
+                    finChunked += str(startCh)+'~'+str(endCh)
+        elif regs > 0 and regs < len(re.split(';',chunkedChans))-1:
+            if re.search('~',splitSemiCol[regs]):
+                #print splitSemiCol[regs]
+                startCh = int(re.split('~',splitSemiCol[regs])[0])+buffChans+1
+                endCh = int(re.split('~',splitSemiCol[regs])[1])-buffChans
+                if not startCh > endCh:
+                    finChunked += ';'+str(startCh)+'~'+str(endCh)
+        else:
+            if re.search('~',splitSemiCol[regs]):
+                endCh = int(re.split('~',splitSemiCol[regs])[1])
+                startCh = int(re.split('~',splitSemiCol[regs])[0])+buffChans
+                if not startCh > endCh:
+                    finChunked += ';'+str(startCh)+'~'+str(endCh)
 
-
-        if regs > 0:
-            if int(re.split('~',splitSemiCol[regs])[0]) -int(re.split('~',splitSemiCol[regs-1])[1]) > 10:
-                4)+';'+str(int(re.split('~',splitSemiCol[regs])[0])+4)
-                finChunked += '~'+str(int(re.split('~',splitSemiCol[regs-1])[1])-4)+';'+str(int(re.split('~',splitSemiCol[regs])[0])+4)
-            else:
-                1])[1]+';'+re.split('~',splitSemiCol[regs])[0]
-                finChunked += '~'+re.split('~',splitSemiCol[regs-1])[1]+';'+re.split('~',splitSemiCol[regs])[0]
-
-
-        if regs == len(re.split(';',chunkedChans))-1:
-            finChunked += '~'+re.split('~',splitSemiCol[regs])[1]
+    print finChunked
 
     return finChunked
 
