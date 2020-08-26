@@ -10,7 +10,8 @@ LumberJack is now available as:
  - A Lite version. The Lite version is a Python script to be run the same directory as the target data.
  
 ## Download
-Coming soon...
+### Task version
+ - [macOS for CASA 5.6.x](https://github.com/adam-avison/LumberJack/blob/master/LumberJackTask_MacVersion.tar) 
  
 ## Usage
 ### Task version
