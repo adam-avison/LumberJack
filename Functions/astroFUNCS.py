@@ -131,5 +131,3 @@ def getBnut(nu,temp):
     Bnut=left*right
 
     return Bnut #in SI units needs converting to Jy in code proper
-
-
