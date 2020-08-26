@@ -17,13 +17,14 @@ Coming soon...
 #### To build Mac Version
 1. Download the Mac Version tar file above.
 2. Untar with `tar xvf LumberJackTask_MacVersion.tar` and `cd` into the resultant directory.
-3. Start your local version of CASA (should be 5.6+, not yet tested in 5.7 or 6.x).
-4. At the CASA prompt:
+3. `cd` again into the Functions/ directory. You will need to set the parameter auPath in the scripts calcFuncs.py (line 5) and measFuncs.py (line 13) to the location of the CASA analysis utilities on your machine. Analysis Utils can be downloaded from: https://casaguides.nrao.edu/index.php/Analysis_Utilities 
+4. Start your local version of CASA (should be 5.6+, not yet tested in 5.7 or 6.x).
+5. At the CASA prompt:
 ```python
 CASA <1>: !buildmytasks
 CASA <2>: execfile('mytasks.py')
 ```
-5. You are good to go. To confirm everything is working you can try:
+6. You are good to go. To confirm everything is working you can try:
 ```python
 CASA <3>: inp lumberjack
 ```
