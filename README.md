@@ -15,7 +15,7 @@ LumberJack is now available as:
  - [Linux Version for CASA 5.6.x](https://github.com/adam-avison/LumberJack/blob/master/LumberJackTask_LinuxVersion.tar)
 
 ## Build 
-### Task versions
+### Task version
 #### macOS
 1. Download the Mac Version tar file above.
 2. Untar with `tar xvf LumberJackTask_MacVersion.tar` and `cd` into the resultant directory.
@@ -71,7 +71,7 @@ Coming soon...
 
 ---
 ## Use in CASA
-### Task versions
+### Task version
 Once built LumberJack will act like any other CASA task and input parameters and help can be sought with the CASA `inp()` and `help()` commands.
 
 #### Input Parameters 
