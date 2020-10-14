@@ -77,22 +77,23 @@ Once built LumberJack will act like any other CASA task and input parameters and
 #### Input Parameters 
 LumberJack's input parameters are:
     
-    - `msname`: Name of CASA measurement set.
+    - `msname`: Name of CASA measurement set (including full path).
     - `spw`: Spectral Window Number (only one SPW can be analysed at a time).
     - `field`: Name of target field within the measurement set (or name of object for mosaic observations).
     - `secsour`: A secondary Source file with file extension .txt [optional, (see below for more details) on formatting].
     - `stddevfactor`: A standard deviation factor to cut off sigma clipping [optional].
 
 #### Data Location
-In the directory you are running LumberJack you will need:
+In the directory you are running LumberJack you can include the optional source list file:
 
 - [Optional] The list of sources in the field, as defined in the `secsour` parameter. This file should be named `<field>+_SecondarySources.txt`.
 The format of this file is:
 
  ```
- sourceX     RA[hh:mm:ss.000]    Dec[dd:mm:ss.000]   Bmaj*   Bmin*   BPA*
+ sourceX     RA[hh:mm:ss.000]    Dec[dd:mm:ss.000]   Bmaj   Bmin   BPA
  ```
- * Where Bmaj, Bmin and BPA are fitted 2D Gaussian major, minor axis and position angle.
+   
+   (Where Bmaj, Bmin and BPA are fitted 2D Gaussian parameters major, minor axis and position angle of the source. And X is a an integer value increasing from 0.)
 
 #### Output
 1. If parameter `secsour` is empty LumberJack finds line free channels at the location of the peak pixel in the given field and SPW. The output in the mode is given as a .txt file named `<field>_SourceX_SPW_<SPW>_LineFreeChans.txt`. 
