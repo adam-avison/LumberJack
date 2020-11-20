@@ -1,0 +1,1952 @@
+LumberJackTask_LinuxVersion/0000755000720500003160000000000013726123450016117 5ustar  aavisonusers6LumberJackTask_LinuxVersion/lumberjack.xml0000644000720500003160000000636413726116403020771 0ustar  aavisonusers6<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" ?>
+<casaxml xmlns="http://casa.nrao.edu/schema/psetTypes.html"
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+xsi:schemaLocation="http://casa.nrao.edu/schema/casa.xsd
+file:///opt/casa/code/xmlcasa/xml/casa.xsd">
+
+    <task type="function" name="lumberjack">
+        <shortdescription>Find line free channels to use in continuum imaging.</shortdescription>
+
+        <description>
+        Find spectral channels free of spectral line emission to aid in the processes of continuum imaging.
+        </description>
+
+        <input>
+            <!-- VIS -->
+            <param type="string" name="vis" kind="ms" mustexist="true">
+            <description>name of input visibility file</description>
+            <value></value>
+            </param>
+
+            <!-- SPW -->
+            <param type="any" name="spw">
+            <description>Spectral window </description>
+            <any type="variant"/>
+            <value type="string"></value>
+            </param>
+
+            <!-- FIELD -->
+            <param type="string" name="field">
+            <description>Field Name</description>
+            <value></value>
+            </param>
+
+            <!-- Tsys
+            <param type="any" name="tsys">
+            <description>System Temperature </description>
+            <any type="variant"/>
+            <value type="string"></value>
+            </param>-->
+
+            <!-- Secondary Source File -->
+            <param type="string" name="secsour">
+            <description>File with positions and properties of Secondary Sources</description>
+            <value></value>
+            </param>
+
+            <!-- stddevfact -->
+            <param type="any" name="stddevfact">
+            <description>Standard deviation factor </description>
+            <any type="variant"/>
+            <value type="string"></value>
+            </param>
+
+            <!-- OTHER THINGS WHICH CAN BE MADE VARIABLES
+
+
+            1) CLIP LEVEL
+            2) STANDARD DEVIATION THRESHOLD
+            3) OUTPUT FILE NAME
+
+            -->
+
+
+            <constraints>
+            <!-- DONT HAVE ANY YET! -->
+            </constraints>
+
+        </input>
+
+        <returns type="void"/> <!-- NOT SURE WHY THIS IS HERE BUT IT'S IN CLEAN -->
+
+        <example>
+
+            Task to find channels free of molecular emission lines to provide users with line free channels to use in continuum only imaging.
+
+            Outputs proposed line free channels to [field]_SPW_[spw]_LineFreeChans.txt
+
+            vis -- Name of fully calibrated input visibility file, within the 'calibrated' directory of an ALMA Archive product
+               default: none; example: vis='ngc5921.ms'
+
+            field -- Select field in which to find lines.  Use field name(s) *ONLY*.
+                  
+            spw -- Select a *single* spectral window in which to find lines
+
+            secsour -- User defined file for extracting spectra a position
+                    "sourceX     RA[hh:mm:ss.000]    Dec[dd:mm:ss.000]   Bmaj*   Bmin*   BPA*"
+                    " *fitted 2D Gaussian major, minor axis and position angle."
+
+            stddevfact --  Standard deviation factor for sigma clipping.
+              default = 1.5
+
+        </example>
+
+    </task>
+
+</casaxml>
+LumberJackTask_LinuxVersion/load_lumberjack.py0000644000720500003160000000162413726123450021612 0ustar  aavisonusers6#
+# User defined tasks setup.
+# Generated from buildmytask.
+#
+
+if sys.path[1] != '/raid1/scratch/aavison/LJ_2020':
+  sys.path.insert(1, '/raid1/scratch/aavison/LJ_2020')
+from odict import odict
+if not globals().has_key('mytasks') :
+  mytasks = odict()
+
+mytasks['lumberjack'] = 'Find line free channels to exclude in continuum imaging.'
+
+if not globals().has_key('task_location') :
+  task_location = odict()
+
+task_location['lumberjack'] = '/raid1/scratch/aavison/LJ_2020'
+import inspect
+#myglobals = sys._getframe(len(inspect.stack())-1).f_globals
+from casa_stack_manip import stack_frame_find
+myglobals_x = stack_frame_find( )  
+myglobals_y = sys._getframe(len(inspect.stack())-1).f_globals
+
+myglobals = myglobals_x.copy()
+myglobals.update(myglobals_y) 
+
+tasksum = myglobals['tasksum'] 
+for key in mytasks.keys() :
+  print key
+  tasksum[key] = mytasks[key]
+
+from lumberjack_cli2 import  lumberjack_cli as lumberjack
+LumberJackTask_LinuxVersion/task_lumberjack.py0000644000720500003160000003604213726116365021646 0ustar  aavisonusers6import re
+import numpy as np
+import os
+import matplotlib.pyplot as plt
+import sys
+import glob
+from scipy.optimize import curve_fit
+from cleanhelper import *
+from taskinit import *
+from listobs_cli import listobs_cli as listobs
+from tclean_cli import tclean_cli as tclean
+#-------------------#
+#--- Load Extras ---#
+#-------------------#
+cwd=os.getcwd()
+sys.path.insert(0,cwd+'/Functions/')
+from loadFuncs import *
+from plotFuncs import *
+from calcFuncs import *
+from measFuncs import*
+
+#-------------------------#
+#--- Main Body of Code ---#
+#-------------------------#
+
+""" LUMBERJACK 'LITE' VERSION
+A SCRIPTED VERSION OF THE LUMBERJACK TASK
+- Created by A.Avison ages ago, finalised Aug -2020
+--- INPUT ----
+ User will need to input the following below:
+- Name of measurement set (parameter msname)
+- Spectral Window Number (as paramter SPW)
+- Target name (as parameter field)
+- [optional] A secondary Source file (see below)
+- [optional]
+
+
+In the current directory you will need:
+- A calibrated measurement set containing your target data
+- [Optional] A list of sources in the field in a file named <target_name>+_SecondarySources.txt
+    - The format of this file is:
+    sourceX     RA[hh:mm:ss.000]    Dec[dd:mm:ss.000]   Bmaj*   Bmin*   BPA*
+    *fitted 2D Gaussian major, minor axis and position angle.
+- The un-tarred Functions.tar directory.
+
+--- OUTPUT ---
+
+If using a secondary Sources file:
+
+For each SPW and source listed in *_SecondarySources.txt you will get:
+- An output txt file named <target_name>_sourceNo_<#>_SPW_<SPW>_LineFreeChans.txt. This contains the line free channels at that position.
+- Two PNG images:
+    - <target_name>_sourceNo_<#>_SPW_<SPW>_lineFree.png which shows the spectrum and line free chans
+    - <target_name>_sourceNo_<#>_SPW_<SPW>_gaussPlot.png which shows a histogram of the flux values of line free channels.
+- A txt file named <target_name>_allSource_SPW_<SPW>_LineFreeChans.txt which combines the values from each source and 'chunks' them in to a CASA SPW string format. e.g. 25:1~30;33~81;84~526;544~591;594~1760;1783~1852;1856~1868;1871~1898;1901~1917
+"""
+#---------- TASK VERSION ---------------#
+def lumberjack(vis, spw, field, secsour, stddevfact):
+    presdir=os.path.realpath('.')
+    
+    #========== PART 0 ============================================#
+    #---- USER INPUT AND GENERATE THE SPECTRUM TO ANALYSE ---------#
+    casalog.origin('lumberjack')
+
+    #--- USER INPUT PARAMS
+    msname=presdir+'/'+vis
+
+    SPW=int(spw)
+    targ=field
+
+    #--- set StdDevFactor to default unless otherwise specified
+    if stddevfact == '':
+        StdDevFactor=1.5
+    else:
+        StdDevFactor=stddevfact
+
+    #print 'Aaaaaaaa'+str(StdDevFactor)
+
+    #--- Switch to turn on multiple source extraction if User defines secondarySourcesFile
+    #--- True to use a user defined list of secondary source positions, False to find spectrum at peak pixel.
+    if secsour == '':
+
+        useSecSources = False
+    else:
+        useSecSources = True
+
+    if useSecSources:
+        secondaryFile=secsour
+
+    #--- 0.5) Take listobs of an MS and recover the useful information.
+    listobsFile=msname+'.listobs'
+
+    try:
+        testList=open(listobsFile,'r')
+    except IOError:
+        print "\n >>> Listobs failed to open, making a new one."
+        listobs(msname, listfile=listobsFile)
+        testList=open(listobsFile,'r')
+
+        testList.close()
+
+    #-- 1) Look into the MS and get useful info
+    nAnt,antDiam,BW,tInt,sourceFields,chWid,targIdx,numChan=measSetInfo(msname,SPW,myfield=targ)
+
+    Tsys = getTsys(msname,SPW)
+    #print Tsys
+    theoRMS=calcSens(nAnt,chWid,tInt,Tsys,antDiam)
+
+    print "\n >>> Assuming "+str(nAnt)+" antennas of diameter "+str(antDiam)+" and channel width of "+str(chWid)+"\n >>> observed for "+str(tInt)+" sec"
+    print "\n >>> The theoretical RMS in a single channel is (assuming no flagging etc) is "+str(theoRMS)+"Jy"
+
+    print sourceFields
+
+    #-- 1.5) Depending on if a user supplies a SecSource list allow ability to loop around detected continuum sources.
+    if useSecSources:
+        print "\n >>> In Secondary Source mode: Using user defined positions and source properties to generate spectra"
+
+        secondarySources=np.genfromtxt(secondaryFile, dtype=None, names=['souNum','secRA','secDec','secBmaj','secBmin','secPA'])
+
+        #- How many sources?
+
+        try:
+            useRange = len(secondarySources['souNum'])
+        except TypeError:
+            useRange = 1
+    else:
+        print "\n >>> In Unknown Source mode: Using peak pixel position to generate spectra"
+        useRange = 1
+
+    for x in range(useRange):
+        if useRange == 1:
+            if useSecSources:
+                source_no=re.split('source',str(secondarySources['souNum']))[1]
+                position=secondarySources['secRA']+'\t'+secondarySources['secDec']
+                thisBmaj=str(secondarySources['secBmaj'])+'arcsec'
+                thisBmin=str(secondarySources['secBmin'])+'arcsec'
+                thisPA=str(secondarySources['secPA'])+'deg'
+
+                print "\n >>>"+source_no+" "+position+" "+thisBmaj+" "+thisBmin+" "+thisPA
+            else:
+                source_no='X'
+
+        else:
+            source_no=re.split('source',secondarySources['souNum'][x])[1]
+            position=secondarySources['secRA'][x]+'\t'+secondarySources['secDec'][x]
+            thisBmaj=str(secondarySources['secBmaj'][x])+'arcsec'
+            thisBmin=str(secondarySources['secBmin'][x])+'arcsec'
+            thisPA=str(secondarySources['secPA'][x])+'deg'
+
+            print "\n >>>"+source_no+" "+position+" "+thisBmaj+" "+thisBmin+" "+thisPA
+
+        #-- 2) Load associated spectrum / or generate one from image !
+
+        #-- See if an image exists
+        imageFile=msname+'_'+targ+'_SPW_'+str(SPW)+'_LumberJack.im'
+        print "\n >>> looking for "+imageFile
+
+        if len(glob.glob(imageFile+'.image')):
+                useImage=glob.glob(imageFile+'.image')[0]
+                print "\n >>> Image found, using "+useImage
+
+                #--- See if spectrum exists
+                sourName=re.split('/',useImage)[-1]
+                sourName='/'+sourName
+                specFile=cwd+sourName+'_spec.txt'
+
+                if useSecSources:
+                    specFile=getSourcePos2(useImage,position,cwd,source_no, thisBmaj, thisBmin, thisPA) # get specta at defined user positions
+                else:
+                    specFile=getSourcePos(useImage,cwd)# get spectrum as peak pixel position (within synth beam)
+
+        else:
+                print "\n >>> No image found... I guess I'll have to make one"
+                print " >>> Assuming the lowest target field ID is the mosaic centre... NEED BETTER MESSAGE HERE"
+                #1) Get cell size and field of view
+                cellSize,FoV=imCellSize(msname,SPW)
+                imageSize=cleanhelper.getOptimumSize(int((FoV/cellSize)*2.0))
+                useImage=imageFile
+                tclean(vis = msname,
+                      imagename = useImage,
+                      field = str(targIdx),
+                      spw =str(SPW),
+                      weighting = 'briggs',
+                      outframe='TOPO',
+                      #phasecenter=str(targIdx),
+                      robust=0.5,
+                      cell=[str(cellSize)+'arcsec'],
+                      imsize=[imageSize,imageSize], #covers about the FoV
+                      gridder='mosaic',
+                      width=1,
+                      specmode='cube',
+                      nchan=-1,
+                      start='',
+                      niter=0,
+                      restoringbeam = 'common')
+
+                if useSecSources:
+                    specFile=getSourcePos2(useImage+'.image',position,cwd,source_no, thisBmaj, thisBmin, thisPA) # get specta at defined user positions
+                else:
+                    specFile=getSourcePos(useImage+'.image',cwd)# get spectrum as peak pixel position (within synth beam)
+
+        freq,S=loadFromText(specFile)
+        #-- 2.5) Test plots
+        testPlots(freq,S,'black')
+
+
+        #--- 2.75) Tidy up the data (i.e. remove absorption , weird end chans etc etc)
+        #--- and obvisous spectral lines
+
+        #--- get brightline emission
+        psd_rms,poss_lines,scale_limits=specFit(S)
+        poss_lines=poss_lines*0.0 #-- THIS IS NOT USED SO SET TO ZERO
+        #--- define where lines aren't
+        poss_not_lines=(1.0-poss_lines)#*(np.max(S)*1.02)#last bit jsut for scaling
+        lineless_S=poss_not_lines*S
+        testPlots(freq,poss_not_lines*(np.max(S)*0.5),'c')
+
+
+        #-- 3) Sigma clipping loop... explained in calcFuncs.py
+        freqS,newS,meanS,stdS=sigmaClipperSTD(freq,S,2.0,95.5)
+        testPlots(freqS[np.where(newS!=0)],newS[np.where(newS!=0)],'orange','.','none')
+
+        #-- 4) Testing the gradient approach
+        gradFreq,gradS=calcGrad(freq,S)
+        highFreq,highCh,highS=whereHighGrad(gradFreq,gradS,2.0*theoRMS)
+        gradyS=newS[highCh]
+        gradyS=gradyS[np.where(gradyS!=0.0)]
+
+        #-- 6) Gaussian tests
+
+        fig3 = plt.figure(3)
+        ax3 = fig3.add_subplot(111)
+
+        #-- Get interquartile range --#
+        binX=newS[np.where(newS!=0.0)]
+
+        q75, q25 = np.percentile(binX, [75 ,25])
+        iqr = q75 - q25
+        bin_widths=2.0*iqr*(len(binX)**(-1.0/3.0))
+        num_bins=(np.max(binX)-np.min(binX))/bin_widths
+
+        valsSC,binsCent=np.histogram(newS[np.where(newS!=0.0)],bins=np.ceil(num_bins))
+        valsGR,binsCent=np.histogram(gradyS,bins=binsCent)
+
+        centreBins=(binsCent[:-1] + binsCent[1:])/2
+
+        #--- remove outliers
+
+        ax3.hist(newS[np.where(newS!=0.0)], binsCent, facecolor='orange', edgecolor='orange', alpha=0.15)
+        ax3.hist(gradyS, binsCent, facecolor='cyan', edgecolor='cyan', alpha=0.15)
+        #
+        ax3.plot(centreBins,valsSC,'rd--')
+        ax3.plot(centreBins,valsGR,'bd--')
+
+        #-- Fit the gaussian
+        meanSC=sum(centreBins*valsSC)/sum(valsSC)
+        sigmaSC=np.sqrt(sum(valsSC*(centreBins-meanSC)**2)/sum(valsSC))
+
+        meanGR=sum(centreBins*valsGR)/sum(valsGR)
+        sigmaGR=np.sqrt(sum(valsGR*(centreBins-meanGR)**2)/sum(valsGR))
+
+        # print 'theoRMs',theoRMS,'!!!'
+        try:
+                poptSC,pcovSC = curve_fit(gauss,centreBins,valsSC,p0=[np.max(valsSC),meanSC,sigmaSC])
+                poptGR,pcovGR = curve_fit(gauss,centreBins,valsGR,p0=[np.max(valsGR),meanGR,sigmaGR])
+
+                ax3.plot(centreBins,gauss(centreBins,poptSC[0],poptSC[1],poptSC[2]),'ro:',label='fit')
+                ax3.plot(centreBins,gauss(centreBins,poptGR[0],poptGR[1],poptGR[2]),'bo:',label='fit')
+                ax3.set_xlabel('binned flux')
+                ax3.set_ylabel('Counts')
+                plt.savefig(targ+'_sourceNo_'+source_no+'_SPW_'+str(SPW)+'_gaussPlot.png')
+                ax3.cla()
+                fig3.clf()
+
+        except RuntimeError:
+                print "\n >>> Curve_fit failed."
+        #--- Now get the standard deviation and list chans with values within 1,2 and 3 standard deviations.
+
+        print " \n >>> Sigma clipper gives... Mean: "+str(poptSC[1])
+        print " >>>                    Std. Dev: "+str(poptSC[2])
+        print " >>> --------"
+        print " \n >>> Gradient test gives... Mean: "+str(poptGR[1])
+        print " >>>                    Std. Dev: "+str(poptGR[2])
+        print " >>> --------"
+
+        #---  SD
+
+        testPlots(freq[np.where(np.logical_and(S>=(poptSC[1]-StdDevFactor*poptSC[2]), S<=(poptSC[1]+StdDevFactor*poptSC[2])))],S[np.where(np.logical_and(S>=(poptSC[1]-StdDevFactor*poptSC[2]), S<=(poptSC[1]+StdDevFactor*poptSC[2])))],'magenta','.','none')
+
+        testPlots([np.min(freq), np.max(freq)],[(poptSC[1]-StdDevFactor*poptSC[2]),poptSC[1]-StdDevFactor*poptSC[2]],'magenta')
+        testPlots([np.min(freq), np.max(freq)],[(poptSC[1]+StdDevFactor*poptSC[2]),poptSC[1]+StdDevFactor*poptSC[2]],'magenta')
+
+
+        testPlots(freq[np.where(np.logical_and(S>=(poptGR[1]-StdDevFactor*poptGR[2]), S<=(poptGR[1]+StdDevFactor*poptGR[2])))][0],S[np.where(np.logical_and(S>=(poptGR[1]-StdDevFactor*poptGR[2]), S<=(poptGR[1]+StdDevFactor*poptGR[2])))][0],'lime','x','none')
+
+        testPlots([np.min(freq), np.max(freq)],[(poptGR[1]-StdDevFactor*poptGR[2]),poptGR[1]-StdDevFactor*poptGR[2]],'lime')
+        testPlots([np.min(freq), np.max(freq)],[(poptGR[1]+StdDevFactor*poptGR[2]),poptGR[1]+StdDevFactor*poptGR[2]],'lime')
+
+
+        #--- ZERO LINE
+        testPlots([np.min(freq)-0.01e9, np.max(freq)+0.1e9],[0, 0],'green')
+        plt.savefig(targ+'_sourceNo_'+source_no+'_SPW_'+str(SPW)+'_lineFree.png')
+        plt.cla()
+        plt.clf()
+        #--- Channels to use
+
+        print " \n >>> Channels in the "+str(StdDevFactor)+" sigma range of Sigma clip:\n"+str(np.where(np.logical_and(S>=(poptSC[1]-StdDevFactor*poptSC[2]), S<=(poptSC[1]+StdDevFactor*poptSC[2])))[0])
+        print " \n >>> Channels in the "+str(StdDevFactor)+" sigma range of Gradient test:\n"+str(np.where(np.logical_and(S>=(poptGR[1]-StdDevFactor*poptGR[2]), S<=(poptSC[1]+StdDevFactor*poptGR[2])))[0])
+
+
+        sigChans=np.where(np.logical_and(S>=(poptSC[1]-StdDevFactor*poptSC[2]), S<=(poptSC[1]+StdDevFactor*poptSC[2])))[0]
+        gradChans=np.where(np.logical_and(S>=(poptGR[1]-StdDevFactor*poptGR[2]), S<=(poptSC[1]+StdDevFactor*poptGR[2])))[0]
+        #--- Combine the channels from the two tests
+        combinedChans=np.intersect1d(sigChans,gradChans)
+        #--- And exclude where specFit thinks lines are... jsut to be safe
+        if np.sum(poss_not_lines)==0.0:#To catch when specFit finds no lines
+                useChans=combinedChans
+        else:
+                useChans=np.intersect1d(((np.where(poss_not_lines==1.0)[0])),combinedChans)
+
+        # print useChans
+
+        spwString=numpyToSPWString(SPW,useChans)
+
+        outSPWString = open(targ+'_sourceNo_'+source_no+'_SPW_'+str(SPW)+'_LineFreeChans.txt','w')
+        print >> outSPWString,  spwString
+        outSPWString.close()
+
+    #========== PART 2 ============================================#
+    #---- GET ALL THE LINE FREE FILES CLEAR THE UNQIUE SET --------#
+    useThis=np.zeros(numChan)
+    for x in range(useRange):
+
+        if useRange == 1:
+            if useSecSources:
+                source_no=re.split('source',str(secondarySources['souNum']))[1]
+            else:
+                source_no = 'X'
+        else:
+            source_no=re.split('source',secondarySources['souNum'][x])[1]
+
+        thisSPWstr=open(targ+'_sourceNo_'+source_no+'_SPW_'+str(SPW)+'_LineFreeChans.txt','r')
+        for line in thisSPWstr:
+            nuline=re.sub(str(SPW)+':','',line)
+            nuline=re.sub('\n','',nuline)
+
+        nuline2=re.split(';',nuline)
+
+        for chan in nuline2:
+            ch=int(chan)
+            useThis[ch]+=1
+        thisSPWstr.close()
+
+        smoothUseThis=smoothLineFree(useThis,useRange,numChan)
+
+    allSourceUseChans=np.where(smoothUseThis==useRange)[0]
+
+    allSourceSpwString=numpyToSPWString(SPW,allSourceUseChans)
+
+    allSourceSpwStringChunk=chunkChansSPWformat(allSourceSpwString)
+    if useSecSources:
+        allSourceOutSPW = open(targ+'_allSource_SPW_'+str(SPW)+'_LineFreeChans.txt','w')
+    else:
+        allSourceOutSPW = open(targ+'_SourceX_SPW_'+str(SPW)+'_LineFreeChans.txt','w')
+    print >> allSourceOutSPW,  allSourceSpwStringChunk
+
+    allSourceOutSPW.close()
+LumberJackTask_LinuxVersion/Functions/0000755000720500003160000000000013726120650020066 5ustar  aavisonusers6LumberJackTask_LinuxVersion/Functions/astroFUNCS.py0000644000720500003160000000706213726120317022374 0ustar  aavisonusers6import re
+import numpy as np
+import math
+def RADec_to_Gal(RADec):
+
+    return "this doesnt work yet "+str(RADec)
+
+def split_coords(coord):
+    delim=coord[2]
+    RADEC_coords=re.split('\t',coord)
+    
+    RA_coords=re.split(delim,RADEC_coords[0])
+    DEC_coords=re.split(delim,RADEC_coords[1])
+    hours=RA_coords[0]
+    mins=RA_coords[1]
+    sec=RA_coords[2]
+    deg=DEC_coords[0]
+    amin=DEC_coords[1]
+    asec=DEC_coords[2]
+
+    return hours,mins,sec,deg,amin,asec
+
+def Deg_to_RADec(degPos):
+
+    degParts=re.split('\t',degPos)
+    raDeg=float(degParts[0])
+    decDeg=float(degParts[1])
+
+    raRem,raHours=math.modf(raDeg/15.0)
+    raRem2,raMin=math.modf(raRem*60.0)
+    raSec=raRem2*60.0
+
+    decRem,decHours=math.modf(decDeg)
+    
+    if decHours<0.0:
+        sign=-1.0
+    else:
+        sign=1.0
+
+    decRem2,decMin=math.modf(sign*decRem*60.0)
+    decSec=decRem2*60.0
+    
+    return str(int(raHours))+" "+str(int(raMin))+" "+str(raSec)+"\t"+str(int(decHours))+" "+str(int(decMin))+" "+str(decSec)
+
+def Deg_to_RADecCASA(degPos):
+
+    degParts=re.split('\t',degPos)
+    raDeg=float(degParts[0])
+    decDeg=float(degParts[1])
+
+    
+    raRem,raHours=math.modf(raDeg/15.0)
+    raRem2,raMin=math.modf(raRem*60.0)
+    raSec=raRem2*60.0
+
+    if raSec<10.0:
+        raSec='0'+str(np.around(raSec, decimals=5))
+    else:
+        raSec=str(np.around(raSec, decimals=5))
+
+    decRem,decHours=math.modf(decDeg)
+    
+    if decHours<0.0:
+        sign=-1.0
+    else:
+        sign=1.0
+
+    decRem2,decMin=math.modf(sign*decRem*60.0)
+    decSec=decRem2*60.0
+    if decSec<10.0:
+        decSec='0'+str(np.around(decSec, decimals=4))
+    else:
+        decSec=str(np.around(decSec, decimals=4))
+
+    #print str(int(raHours)).zfill(2)+":"+str(int(raMin)).zfill(2)+":"+str(raSec)+", "+str(int(decHours)).zfill(3)+"."+str(int(decMin)).zfill(2)+"."+str(np.around(decSec, decimals=4)).zfill(7)
+
+    return str(int(raHours)).zfill(2)+":"+str(int(raMin)).zfill(2)+":"+raSec+", "+str(int(decHours)).zfill(3)+"."+str(int(decMin)).zfill(2)+"."+decSec
+    
+    
+def RADec_to_Deg(RADec):
+
+    hours,mins,sec,deg,amin,asec=split_coords(RADec)
+    hours=float(hours)
+    mins=float(mins)
+    sec=float(sec)
+    deg=float(deg)
+    amin=float(amin)
+    asec=float(asec)
+    
+    RA_in_Deg=(hours+(mins/60.0)+(sec/3600.0))*15.0
+
+    if deg<0:
+        Dec_in_Deg=deg-(amin/60)-(asec/3600)
+    else:
+        Dec_in_Deg=deg+(amin/60)+(asec/3600)
+
+    Deg=str(RA_in_Deg)+" "+str(Dec_in_Deg)
+    
+    return Deg
+
+def calc_offset(source1,source2):
+    sou1_h,sou1_m,sou1_s,sou1_d,sou1_am,sou1_as=source1
+    sou2_h,sou2_m,sou2_s,sou2_d,sou2_am,sou2_as=source2
+    
+    
+    sou1_RA=(float(sou1_h)+(float(sou1_m)/60.0)+(float(sou1_s)/3600.0))*15.0
+    sou2_RA=(float(sou2_h)+(float(sou2_m)/60.0)+(float(sou2_s)/3600.0))*15.0
+
+    if float(sou1_d)<0:
+        sou1_DEC=(float(sou1_d)-(float(sou1_am)/60.0)-(float(sou1_as)/3600.0))
+    else:
+        sou1_DEC=(float(sou1_d)+(float(sou1_am)/60.0)+(float(sou1_as)/3600.0))
+
+    if float(sou2_d)<0:
+        sou2_DEC=(float(sou2_d)-(float(sou2_am)/60.0)-(float(sou2_as)/3600.0))
+    else:
+        sou2_DEC=(float(sou2_d)+(float(sou2_am)/60.0)+(float(sou2_as)/3600.0))
+
+    delta_RA=(sou1_RA-sou2_RA)*np.cos(sou2_DEC/57.29)*3600
+    delta_DEC=(sou1_DEC-sou2_DEC)*3600
+
+    absol_OFFSET=np.sqrt((delta_RA**2.0)+(delta_DEC**2.0))
+    
+    return delta_RA, delta_DEC, absol_OFFSET
+
+def getBnut(nu,temp):
+    #returns value of planck equation at given freq and temp
+    left=(2.0*h*nu**3.0)/(c**2.0)
+    right=1.0/(np.expm1((h*nu)/(k*temp)))
+
+    Bnut=left*right
+
+    return Bnut #in SI units needs converting to Jy in code proper
+LumberJackTask_LinuxVersion/Functions/plotFuncs.py0000644000720500003160000000034113726120301022404 0ustar  aavisonusers6import matplotlib.pyplot as plt
+
+def testPlots(x,y,col,mar='',lin='-',figNo=1):
+    fig = plt.figure(figNo, figsize=[7,7])
+    ax = fig.add_subplot(1, 1, 1)
+    ax.plot(x,y,color=col,linestyle=lin,marker=mar)
+    #plt.show()
+LumberJackTask_LinuxVersion/Functions/loadFuncs.py0000644000720500003160000000477113726120145022366 0ustar  aavisonusers6import numpy as np
+import os
+import sys
+import glob
+import re
+
+def loadFromText(txtfile):
+
+    chan,S=np.loadtxt(txtfile,unpack=True)
+    return chan,S
+
+def whereIsEverything(cwd):
+          mem_wd=re.split('calibrated',cwd)[0]
+          print "\n >>> Checking that all the required files are present."
+
+          #--- Find Tsys Tables
+          TsysTables=[]
+
+          for tables in os.listdir(cwd+'/working/'):
+                    if tables.endswith('tsyscal.tbl'):
+                              TsysTables.append(cwd+'/working/'+tables)
+
+          if len(TsysTables)==0:
+                    sys.exit("\n >>> No Tsys Tables found in:\n\n"+cwd+"/working/\n\n >>> Bailing out!")
+          else:
+                    print"\n >>> Tsys table(s) found."
+
+          #--- Find listobs files
+
+          try:
+                    pipelineFolder=glob.glob(mem_wd+'qa/pipeline-*')[0]
+                    print "\n >>> Pipeline output directory found"
+          except IndexError:
+                    print "\n >>> Pipeline output directory doesn't exist checking for tarball weblog"
+
+                    try:
+                              tarPipelineFolder=glob.glob(mem_wd+'/qa/*.weblog.tar.gz')[0]
+                              print "\n >>> Tarball weblog  hasn't been untarred yet... untarring"
+                              os.system('tar xvfz '+mem_wd+'/qa/*.weblog.tar.gz -C '+mem_wd+'/qa')
+                              pipelineFolder=glob.glob(mem_wd+'/qa/pipeline-*')[0]
+                              print "\n >>> Pipeline output directory untarred"
+                    except IndexError:
+                              sys.exit("\n >>> No listobs.txt found for raw MS found in:\n\n"+mem_wd+"/qa/\n\n >>> Bailing out!")
+
+          rawListobs=[]
+          for MSs in TsysTables:
+                    MS_uid=re.split('\.',re.split('/',MSs)[-1])[0] # A messy regex to jsut get the uid name for each relavent Tsys table to look for corresponding listobs
+                    try:
+                              thisListobs=glob.glob(pipelineFolder+'/html/sessionsession_*/'+MS_uid+'.ms/listobs.txt')[0]
+                              print thisListobs
+                    except IndexError:
+                              sys.exit("\n >>> No listobs.txt found for raw MS"+MS_uid+"\n >>> Bailing out!")
+
+          return TsysTables, thisListobs
+
+def numpyToSPWString(SPW,arr):
+        SPWstring=str(SPW)+':'    
+        for v in arr:
+                SPWstring+=str(v)+';'
+
+        SPWstring=SPWstring[:-1]#chop off the trailing semicolon
+        return SPWstring
+LumberJackTask_LinuxVersion/Functions/calcFuncs.py0000644000720500003160000004065313726120004022342 0ustar  aavisonusers6import numpy as np
+import re
+import sys
+
+auPath = '<PATH TO ANALYSIS UTILS>' #you can download AnalysisUtils from https://casaguides.nrao.edu/index.php/Analysis_Utilities
+sys.path.insert(0,auPath)
+import analysisUtils as aU
+
+"""TO DO: Calcsensitivity for inhomogenous array"""
+
+def smoothLineFree(LFCs,sourNo,numCh):
+    cpLFCs = np.copy(LFCs)
+    lineChans=np.where(cpLFCs==0.0)[0]
+    for lineChan in lineChans:
+        if lineChan < int(numCh)-2:
+            if lineChan<len(cpLFCs)-1:
+                if cpLFCs[lineChan-1] == sourNo and cpLFCs[lineChan+1] == sourNo:
+                    cpLFCs[lineChan]=sourNo
+                elif cpLFCs[lineChan-1] == sourNo and cpLFCs[lineChan+2] == sourNo:
+                    cpLFCs[lineChan]=sourNo
+            elif lineChan == len(cpLFCs):
+                if cpLFCs[lineChan-1] == sourNo:
+                    cpLFCs[lineChan]=sourNo
+
+    return cpLFCs
+
+def imCellSize(msname,spw):
+     c=299792458.0 #SoL m/s
+     #--- max baseline
+     blines=aU.getBaselineLengths(msname,sort=True)
+     maxBline=blines[len(blines)-1][1]
+     print maxBline
+     #--- spw cent freq
+     sciFreqs=aU.getScienceFrequencies(msname)
+     imFreq=sciFreqs[spw]
+
+     #--- Calc resolution
+     res=((c/imFreq)/maxBline)*(180.0/np.pi)*3600.0
+     FoV=((c/imFreq)/12.0)*(180.0/np.pi)*3600.0
+     cellSize=res/6.0
+
+     return cellSize, FoV
+
+def calcGrad(chans,flux):
+    #--- Takes the gradient on a channel by channel step
+    gradVal=[]
+    for x in range(len(chans)-1):
+        gradVal.append(flux[x+1]-flux[x])
+
+    gradVal_arr=np.array(gradVal)
+    gradChans=chans[1:]
+
+    return gradChans, gradVal_arr
+
+
+def whereHighGrad(gradFreq,gradFlux,theoRMS):
+    #--- Find channels with gradient <2x theorms
+    moduGradFlux = np.sqrt(gradFlux**2.0)
+    gradFlux[np.where(moduGradFlux<(2.0*theoRMS))]
+    gradFluxIndx = (np.where(moduGradFlux<(2.0*theoRMS))[0])
+    gradHighFreq=gradFreq[gradFluxIndx]
+
+    return gradHighFreq, gradFluxIndx, gradFlux[np.where(moduGradFlux<(2.0*theoRMS))]
+
+
+def calcSens(numAnts,BW,t_int,Tsys,diam):
+    #--- Calc sensitivity and return in Janskys
+    if BW<0.0: # To compensate for negative chanwidths
+        BW=BW*-1.0
+
+    t_int=43.5*60.0
+    k=1.38e-23
+    top=2.0*k*Tsys
+    insqrt=((numAnts*(numAnts-1))*BW*(t_int))
+    bottom=0.7*(np.pi*((diam/2.0)**2.0))*(np.sqrt(insqrt))
+
+    sens=top/bottom
+    #print float(sens/1e-26)
+    return float(sens/1e-26)
+
+
+
+
+def sigmaClipperSTD(ch,S,clip_level=2.0,tol=95.5):
+    """0) Take all data, derive a median and standard deviation.
+       1) Exclude all data point which are > median+(clip_level*std) or < median-(clip_level*std)
+       2) Caculate stdLev which is ((oldStdDev - newStdDev)/newstdDev): if stdLev > tol (entered as a %age) stop, else continue
+       3) Calculate SNR (Peak/medianS), if it starts increasing stop.
+       4) If the remaining channels == 0 stop.
+    """
+
+    SNR=1000.0
+    oldSNR=1000.0
+    oldStd=1000.0
+    stdLev=1000.0
+    while stdLev>(1.0-(tol/100.0)):
+
+        peakS=np.max(S) #--- Find peak value in current S array
+        nChan=len(S[np.nonzero(S)]) #--- Find number of non-zeroed channels
+
+        if nChan==0:
+            print "\n >>> SNR of "+str(SNR)+" reached... stopping now"
+            SNR=1.0
+            newS=tmpS
+        else:
+            meanS=np.sum(S[np.nonzero(S)])/float(nChan)                  #of all channels
+            medianS=np.median(S[np.nonzero(S)])
+            stdS=np.std(S[np.nonzero(S)])
+            SNR=peakS/medianS
+            print "\n >>> Mean flux across all channels: "+str(meanS)
+            print " >>> Median flux across all channels: "+str(medianS)
+            print " >>> Peak flux across all channels: "+str(peakS)
+            print " >>> Std Dev. across all channels: "+str(stdS)
+            print " >>> SNR = "+str(SNR)
+
+            print oldStd, stdS, '!----!'
+            print (stdS/oldStd)*100.0
+            stdLev= (oldStd-stdS)/stdS
+            print stdLev
+
+            #Want points where value is between median +/- alpha*stdS
+            tru=np.where(np.logical_and(S>medianS-(clip_level*stdS),S<medianS+(clip_level*stdS)))[0]
+            print medianS-(clip_level*stdS),medianS+(clip_level*stdS)
+            newS=np.zeros(len(S))
+            tmpS=S
+            for x in tru:
+                newS[x]=S[x]
+
+            S=[]
+            S=newS
+
+            if SNR>oldSNR:
+                    print "\n >>> SNR starting to increase after SNR="+str(oldSNR)+" reached... stopping now"
+                    SNR=1.0
+                    newS=tmpS
+
+        oldSNR=SNR
+        oldStd=stdS
+
+    return ch, newS, meanS, stdS
+
+def gauss(x,a,b,c):
+        """ gaussian function for fitting """
+        return a*np.exp(-(x-b)**2/(2*c**2))
+
+
+def specFit(fl_data):
+        """ Try to tidy up data by removing absorption,obvious emission and  edge channels based on 2012 SpecFit.py by me! """
+        freq_naxis=len(fl_data)
+        mean_flux=sum(fl_data)/freq_naxis                  #of all channels
+        median_flux=np.median(fl_data)
+        print "Mean flux across all channels: "+str(mean_flux)
+        print "Median flux across all channels: "+str(median_flux)
+        j=0                                            #counter for none line channels
+        k=0                                            #counter for line channels
+        q=0
+        pseudo_rms_tot=0
+        sumFlux=0
+        #--- First pass calculate rms for all channels above 3 x mean/median value ---#
+
+        for i in fl_data:
+            if i >(3.0*mean_flux) or i < (-3.0*mean_flux):
+                k=k+1
+                sumFlux=sumFlux+(i*i)
+            else:
+                j=j+1
+                pseudo_rms_tot=pseudo_rms_tot+(i*i)
+            q=q+1
+
+        print str(k)+" channels above 3.0 * median over all channels"
+        if j==0:
+            print "all channels above 3.0 * median over all channels"
+            print "using sqrt of total flux as pseudo rms"
+            pseudo_rms=np.sqrt(sumFlux/float(k))
+        else:
+            pseudo_rms=np.sqrt(pseudo_rms_tot/float(j))
+            print "Pseudo rms: "+str(pseudo_rms)
+
+        if k==0:
+            highpass=np.max(fl_data)/pseudo_rms
+            print 'reduced highpass '+str(highpass)
+            scale_limits=highpass/3.0
+        else:
+            highpass=3.0
+            scale_limits=1.0
+
+        #----------------------- high RMS pass -----------------------------------#
+        #--- 2nd pass calculate rms for all channels above 3 x first rms ---#
+        #--- if a channel has is above 3x rms then make line_regions -------#
+        #--- == line_val ---------------------------------------------------#
+        line_regions_highrms=np.zeros(freq_naxis)
+        baseline_use_regions=np.zeros(freq_naxis)
+        line_val_highrms=1.0
+        v=0
+        l=0
+        for ii in fl_data:
+            if ii >(highpass*pseudo_rms) or ii <(-highpass*pseudo_rms):
+                l=l+1
+                line_regions_highrms[v]=line_val_highrms
+                baseline_use_regions[v]=0
+            else:
+                baseline_use_regions[v]=fl_data[v]
+            v=v+1
+
+        #--- Assess line_regions to exclude single channels ---#
+        w=0
+        print freq_naxis
+        for lr in line_regions_highrms:
+            if lr == line_val_highrms:
+                if w==(freq_naxis-1):
+                    if line_regions_highrms[w-1]==0.0:
+                        line_regions_highrms[w]=0.0
+                elif w==0:
+                    if line_regions_highrms[w+1]==0.0:
+                        line_regions_highrms[w]=0.0
+                else:
+                    if line_regions_highrms[w-1]==0.0 and line_regions_highrms[w+1]==0.0:
+                        line_regions_highrms[w]=0.0
+            w=w+1
+
+        #--------------------- low RMS pass -----------------------------------#
+
+        #--- 2nd pass calculate rms for all channels above 2 x first rms ---#
+        #--- if a channel has is above 2x rms then make line_regions -------#
+        #--- == line_val ---------------------------------------------------#
+        line_regions_lowrms=np.zeros(freq_naxis)
+        line_val_lowrms=line_val_highrms
+
+        vv=0
+        ll=0
+        for iii in fl_data:
+            if iii >(scale_limits*2.0*pseudo_rms) and iii <(scale_limits*3.0*pseudo_rms) :
+                ll=ll+1
+                line_regions_lowrms[vv]=line_val_lowrms
+                baseline_use_regions[vv]=0
+
+            vv=vv+1
+
+        #--- Assess line_regions to exclude single channels ---#
+        ww=0
+
+        for llr in line_regions_lowrms:
+            if llr == line_val_lowrms:
+                if ww==(freq_naxis-1):
+                    if line_regions_lowrms[ww-1]==0.0:
+                        line_regions_lowrms[ww]=0.0
+
+                elif ww==0:
+                    if line_regions_lowrms[ww+1]==0.0:
+                        line_regions_lowrms[ww]=0.0
+                else:
+                    if  line_regions_lowrms[ww-1]==0.0 and line_regions_lowrms[ww+1]==0.0:
+                        line_regions_lowrms[ww]=0.0
+            ww=ww+1
+
+        print " >> Combining rms thresholding"
+        print " ------------------------------------------------------"
+
+        threshold_line_regions=line_regions_lowrms+line_regions_highrms
+
+        #--- Smooth along threshold_line_regions bring in the odd
+        #--- line which wasn't flagged as emission before
+        smoothed_lr_f=np.zeros(freq_naxis)
+        smoothed_lr_b=np.zeros(freq_naxis)
+
+        www=0
+        for thlr in threshold_line_regions:
+            forw_check=forward_ten(threshold_line_regions,www)
+            backw_check=backward_ten(threshold_line_regions,www)
+
+            smoothed_lr_f[www]=forw_check
+            smoothed_lr_b[www]=backw_check
+
+            www=www+1
+
+        vv=0
+        smoothed_lr=np.zeros(freq_naxis)
+        for smlr in smoothed_lr:
+            if smoothed_lr_f[vv] >=3.0 or smoothed_lr_b[vv]>=3.0:
+                smoothed_lr[vv]=(smoothed_lr_b[vv]+smoothed_lr_f[vv])
+            vv=vv+1
+
+        smooth_window_length=20
+        smoothed_lr=smooth(smoothed_lr,smooth_window_length,'flat')
+
+        vvw=0
+        for bz in smoothed_lr:
+            if smoothed_lr[vvw] >0.0:
+                smoothed_lr[vvw]=1.0
+            vvw=vvw+1
+
+        linesHere=smoothed_lr[(smooth_window_length/2):(freq_naxis+(smooth_window_length/2))]
+        return pseudo_rms, linesHere, scale_limits
+
+
+
+#---- Functions which are need for tidyData
+def forward_ten(arr,n): #scan forward an see the sum of the next 10 chans... becomes unreliable in last 10 chans
+    arr_size=arr.size
+    nextt=0
+    if n+5 < arr_size:
+        for i in range(5):
+            nextt=nextt+arr[n+i]
+    else:
+        j=arr_size-n
+        for ii in range(j):
+            nextt=nextt+arr[n+ii]
+
+    return nextt
+
+def backward_ten(arr,n): #scan backward an see the sum of the last 10 chans... becomes unreliable in first 10 chans
+    arr_size=arr.size
+    lastt=0
+    if n-5 > 0:
+        for i in range(5):
+            lastt=lastt+arr[n-i]
+    else:
+        j=n
+        for ii in range(j):
+            lastt=lastt+arr[n-ii]
+
+    return lastt
+
+
+def smooth(x,window_len=11,window='hanning'):
+    #--- Borrowed from Stackoverflow
+    if x.ndim != 1:
+         raise ValueError, "smooth only accepts 1 dimension arrays."
+
+    if x.size < window_len:
+        raise ValueError, "Input vector needs to be bigger than window size."
+
+    if window_len<3:
+        return x
+
+    if not window in ['flat', 'hanning', 'hamming', 'bartlett', 'blackman']:
+        raise ValueError, "Window is on of 'flat', 'hanning', 'hamming', 'bartlett', 'blackman'"
+
+    s=np.r_[x[window_len-1:0:-1],x,x[-1:-window_len:-1]]
+
+    if window == 'flat': #moving average
+        w=np.ones(window_len,'d')
+    else:
+        w=eval('np.'+window+'(window_len)')
+
+    y=np.convolve(w/w.sum(),s,mode='valid')
+    return y
+
+def deAbsorb(fl_data,theoRMS):
+        """ Try to tidy up data by removing absorption and edge channels, this is a bit weak and could be re-written"""
+        freq_naxis=len(fl_data)
+        mean_flux=sum(fl_data)/freq_naxis                  #of all channels
+        median_flux=np.median(fl_data)
+        print "Mean flux across all channels: "+str(mean_flux)
+        print "Median flux across all channels: "+str(median_flux)
+
+        abs_region=np.ones(freq_naxis)
+        #abs_region[np.where(fl_data<(median_flux-(10.0*theoRMS)))]=0.0
+        abs_region[np.where(fl_data<(3.0*theoRMS))]=0.0
+        fixed_data=fl_data*abs_region
+
+        return abs_region, fixed_data
+
+def chunkChansSPWformat(spwString):
+    #=== split off channel list ===#
+    chanList = re.split(':',spwString)[1]
+    chunkedChans = re.split(':',spwString)[0]+':'
+    #== append and insanely large final channel
+    chanList += ';1000000000'
+    #=== check channels
+    prevCh=int(re.split(';',chanList)[0])
+    startCh=int(re.split(';',chanList)[0])
+    endCh=-1
+
+    for ch in re.split(';',chanList):
+        iCh=int(ch)
+        #print iCh, iCh-prevCh
+        if iCh-prevCh == 1 or iCh-prevCh == 2 or iCh-prevCh == 3:
+            endCh=iCh
+            prevCh=iCh
+
+        else:
+            if endCh<0:
+                print 'Collapsing down line free channels'
+            elif startCh > endCh:
+                chunkedChans += str(startCh)+';'
+            else:
+                chunkedChans += str(startCh)+'~'+str(endCh)+';'
+
+            startCh=iCh
+            prevCh=iCh
+
+    chunkedChans = chunkedChans[:-1]
+    print chunkedChans
+
+
+
+    #--- Add a bit of a buffer to lines > 10 chans wide
+    splitSemiCol = re.split(';',chunkedChans)
+    finChunked = re.split(':',splitSemiCol[0])[0]+':'
+    buffChans = 4
+
+    for regs in range(len(re.split(';',chunkedChans))):
+        #print regs, splitSemiCol[regs]
+        if regs==0:
+            if re.search('~',splitSemiCol[regs]):
+                endCh = int(re.split('~',splitSemiCol[regs])[1])-buffChans
+                startCh = int(re.split('~',re.split(':',splitSemiCol[regs])[1])[0])
+                if not startCh > endCh:
+                    finChunked += str(startCh)+'~'+str(endCh)
+        elif regs > 0 and regs < len(re.split(';',chunkedChans))-1:
+            if re.search('~',splitSemiCol[regs]):
+                #print splitSemiCol[regs]
+                startCh = int(re.split('~',splitSemiCol[regs])[0])+buffChans+1
+                endCh = int(re.split('~',splitSemiCol[regs])[1])-buffChans
+                if not startCh > endCh:
+                    finChunked += ';'+str(startCh)+'~'+str(endCh)
+        else:
+            if re.search('~',splitSemiCol[regs]):
+                endCh = int(re.split('~',splitSemiCol[regs])[1])
+                startCh = int(re.split('~',splitSemiCol[regs])[0])+buffChans
+                if not startCh > endCh:
+                    finChunked += ';'+str(startCh)+'~'+str(endCh)
+
+    print finChunked
+
+    return finChunked
+
+#==========================
+
+""" OLD DONT USE """
+
+"""def sigmaClipper(ch,S,clip_level=0.7):
+"""
+"""   sigmaClipper: This takes the channel number and the flux per channel as inputs.
+    It also takes a "clip_level" or defaults to 70%. It then finds the mean and peak flux values.
+    Calculates SNR as peak/mean, if this  value is > 1.0 then it sets all channels with
+    flux above 70% (or clip_level) of the peak value to zero and repeats the process.
+    Once SNR is ~<1.0 it stops and the flux array is returned with all non-zero values assumed
+    to be continuum channels.
+"""
+
+"""    SNR=1000.0
+    oldSNR=1000.0
+    oldStd=1000.0
+    while SNR>1.0:
+        print oldSNR
+        peakS=np.max(S) #--- Find peak value in current S array
+        nChan=len(S[np.nonzero(S)]) #--- Find number of non-zeroed channels
+        if nChan==0:
+            print "\n >>> SNR of "+str(SNR)+" reached... stopping now"
+            SNR=1.0
+            newS=tmpS
+        else:
+            meanS=np.sum(S[np.nonzero(S)])/float(nChan)                  #of all channels
+            medianS=np.median(S[np.nonzero(S)])
+            stdS=np.std(S[np.nonzero(S)])
+            SNR=peakS/meanS
+            print "\n >>> Mean flux across all channels: "+str(meanS)
+            print " >>> Median flux across all channels: "+str(medianS)
+            print " >>> Peak flux across all channels: "+str(peakS)
+            print " >>> Std Dev. across all channels: "+str(stdS)
+            print " >>> SNR = "+str(SNR)
+            tru=np.where(S<clip_level*peakS)[0]
+            newS=np.zeros(len(S))
+            tmpS=S
+            for x in tru:
+                newS[x]=S[x]
+            S=[]
+            S=newS
+            if SNR>oldSNR:
+                    print "\n >>> SNR starting to increase after SNR="+str(oldSNR)+" reached... stopping now"
+                    SNR=1.0
+                    newS=tmpS
+        oldSNR=SNR
+        oldStd=stdS
+    return ch, newS, meanS, stdS"""
+LumberJackTask_LinuxVersion/Functions/measFuncs.py0000644000720500003160000004357313726120214022374 0ustar  aavisonusers6import numpy as np
+import os
+import sys
+import re
+from taskinit import *
+import matplotlib.pyplot as plt
+from astroFUNCS import *
+# from task_imstat import imstat
+from imstat_cli import imstat_cli as imstat
+from imval_cli import imval_cli as imval
+
+#--- Import analysis utils
+auPath = '<PATH TO ANALYSIS UTILS>'#you can download AnalysisUtils from https://casaguides.nrao.edu/index.php/Analysis_Utilities 
+sys.path.insert(0,auPath)
+import analysisUtils as aU
+
+
+#--- INITIALISE SOME CASA TOOL
+ia = iatool()
+msmd = msmdtool()
+
+def getTsys(myMS,SPW):
+    """
+    #FUNCTION TO RETURN MEDIAM TSYS IN A GIVEN MS & SPW
+    """
+    wantTsys = np.array([])
+
+    msmd.open(myMS) #--- Open the measurement set
+    baseband  = msmd.baseband(int(SPW))
+    msmd.close() #--- close the measurement set
+    msmd.done()  #--- kill the msmd tool.
+    baseband_str = 'BB_'+str(baseband) #--- get SPW baseband into basebandName format
+
+    #--- OPEN DATA TABLE AND GET TSYS & FREQ RANGES VALUES ---#
+    tb.open(myMS+'/ASDM_CALATMOSPHERE', nomodify=True)
+    tsys = tb.getcol('tSys')                #--- ALL Tsys vales
+    BB = tb.getcol('basebandName')          #--- Baseband Name
+    tb.close()
+
+    wantTsys = np.append(wantTsys,tsys[0][np.where(BB==baseband_str)[0]]) #--- XX corr Tsys vals
+    wantTsys = np.append(wantTsys,tsys[1][np.where(BB==baseband_str)[0]]) #--- YY corr Tsys vals
+
+    medianTsys = np.median(wantTsys)
+
+    return medianTsys
+
+
+def getMean(xdata):
+        #--- get mean values from imval for spectra---#
+        meanArr=[]
+        tmpVal=0.0
+        for z in range(xdata.shape[2]):
+                for x in range(xdata.shape[0]):
+                        for y in range(xdata.shape[1]):
+                                    #print x, y, z
+
+                                    #print xdata[x][y][z]
+                                    tmpVal+=(xdata[x][y][z])
+                meanArr.append(tmpVal/float(xdata.shape[0]+xdata.shape[1]))
+                tmpVal=0.0
+        return np.array(meanArr)
+
+def readListobs(listFile):
+          #--- reads the SPW info from the raw MS listobs ---#
+          listing=open(listFile).readlines()
+          parse=False
+
+          spwInfo=[]
+          for line in listing:
+                    if line.startswith("  SpwID  Name"):
+                              parse=True
+                    elif line.startswith("Sources:"):
+                              parse=False
+
+                    if parse:
+                            spwInfo.append(re.split('\s+',line))
+
+          return spwInfo
+
+def getTsysValue(tables,listobsFile,wantSPW,msname):
+          """ DEPRECATED"""
+          #--- Return the average Tsys value for the spectral window we are looking at --#
+          tab_count=0
+          TsysAverage=0
+          for table in tables:
+                    tb.open(table)
+
+                    spwsIDs=tb.getcol('SPECTRAL_WINDOW_ID')
+
+                    #--- Get the raw MS listobs data related to SPWs        ---#
+                    #--- This contains the Tsys and WVR SPWs as well as the ---#
+                    #--- Science ones... we want to find the Tsys SPW which ---#
+                    #--- matches our Science SPW                            ---#
+                    spwData=readListobs(listobsFile)
+
+                    sciFreqs=aU.getScienceFrequencies(msname)
+                    wantSciFreq=(sciFreqs[wantSPW])/1.0e6
+                    #--- Find which Tsys SPW has minimum difference from sci spw ---#
+                    freqDiff=[]
+                    for spwz in np.unique(np.asarray(spwsIDs)):
+                              for msSPW in spwData:
+                                        if msSPW[1] == str(spwz):
+                                                  freqDiff.append(np.sqrt((float(msSPW[5])-wantSciFreq)**2.0))
+
+                    #--- this is the Tsys SPW we want associated with our Sci SPW ---#
+                    wantTsysSPW=np.unique(np.asarray(spwsIDs))[np.argmin(freqDiff)]
+                    #--- These are the rows of Tsys data associated with our Sci SPW ---#
+                    wantTsysRows=np.where(spwsIDs==wantTsysSPW)[0]
+
+                    #--- get only Tsys values that are in our wanted Tsys SPW ---#
+                    tsysVals=tb.getcol('FPARAM',startrow=wantTsysRows[0],nrow=len(wantTsysRows))
+                    tb.close()
+                    print np.median(tsysVals[0][7:120][:]),np.median(tsysVals[1][7:120][:])
+
+                    #--- Take average Tsys from non-edge channels in xx and yy corr ---#
+                    thisTsysAverage=np.average([np.median(tsysVals[0][7:120][:]),np.median(tsysVals[1][7:120][:])])
+
+
+                    tab_count+=1
+
+                    TsysAverage+=thisTsysAverage
+                    print "\n >>> Average Tsys = "+str(TsysAverage)+" K"
+
+          TsysAverage=TsysAverage/float(tab_count)
+
+          return TsysAverage
+
+
+def measSetInfo(msname,wantSPW,myfield=''):
+
+    listobsFile=msname+'.listobs'
+    listRead=open(listobsFile,'r')
+    linecount=0 #--- Counter to figureout where to grab antenna info from.
+    for listLine in listRead:
+        if re.match('Data records:',listLine):
+            dataRecs=listLine.strip()
+        if re.match('\s+Observed from',listLine):
+            obsFrom=listLine.strip()
+        if re.match('Antennas:',listLine):
+            numAnts=float((re.split('\:',listLine.strip())[1]).strip())
+            antDataStartLine=linecount+3
+        linecount+=1
+
+    #--- Load all antenna data
+
+    antData=np.loadtxt(listobsFile,skiprows=antDataStartLine,dtype={'names':('ID','Name','Station','Diam','DiamU','Long','Lat','EastOff','NorthOff','Elev','antX','antY','antZ'),'formats':('i4','S6','S6','S6','S4','S12','S12','f8','f8','f8','f8','f8','f8')})
+
+    #--- convert dish diameters to m
+
+    outDiamM=[]#--output diameter after conversion will me in meter
+    for x in range(len(antData['Diam'])):
+        inpDiam=qa.quantity(str(antData['Diam'][x])+antData['DiamU'][x])
+
+        outDiam=qa.convert(inpDiam,'m')
+        outDiamM.append(outDiam['value'])
+
+    #--- Use msmd tools to get spw numbers and bandwidths etc
+
+    msmd.open(msname)
+    dataBWs=msmd.bandwidths() #--- Get bandwidths
+    chan_res = msmd.chanwidths(wantSPW,unit="Hz")
+    numChan = msmd.nchan(wantSPW)
+    spws=msmd.almaspws(sqld=True, complement=True) #--- Get spectral window numbers
+
+    #--- Get all science target fields
+    target_fields=msmd.fieldsforintent("OBSERVE_TARGET#ON_SOURCE")
+    allFields=msmd.fieldnames()
+    #--- If no field specified get the first target source and use that
+    if myfield=='':
+         myfield=allFields[target_fields[0]]
+
+         print "\n >>> You didn't specify a field so I am assuming the first target field\n >>> in the MS, which is "+myfield
+
+    #--- Check is all the target names match... i.e. is the target field mosaiced
+    scan_numbers=[]
+    for field in allFields:
+	    if field[:-2] == myfield[:-2]:
+		    theseScan=msmd.scansforfield(field)
+		    print field, theseScan
+		    #for scans in
+		    #     scan_numbers.append(scans)
+
+
+
+    mySourceIdx=allFields.index(myfield)
+    scan_numbers=np.asarray(theseScan)
+    #--- Get timeOn Source
+    obsTime=0
+    obsID=0
+
+    mydict = aU.timeOnSource(msname,verbose=False) #in minutes
+
+    obsTime=mydict['minutes_on_science']
+
+    msmd.close()
+    msmd.done()
+
+    return numAnts, outDiamM[0], dataBWs[wantSPW], (obsTime*60.0)/float(len(target_fields)), np.asarray(target_fields), chan_res[wantSPW], mySourceIdx, numChan
+
+################################################################################
+
+def getSourcePos(targImage,specPath):
+        #--- Function to get useful information about the image file, and extract the spectrum at the position of the peak pixel.
+        #--- Saves spectrum to textfile and returns position of peak
+
+        ia.done()
+        #--- OPEN IMAGE
+        ia.open(targImage)
+
+        #--- Source names
+        sourName=re.split('/',targImage)[-1]
+        sourName='/'+sourName
+        #--- GET AXIS INFORMATION
+        inp_csys=ia.coordsys()
+        freqAxis=inp_csys.findcoordinate(type='spectral')['pixel'][0]#--- determine which axis is the freq axis
+        freqRefPix=inp_csys.referencepixel()['numeric'][freqAxis]#--- frequency axis reference pixel
+        freqRefVal=inp_csys.referencevalue()['numeric'][freqAxis]#--- frequency axis reference value (in Hz)
+        freqIncr=inp_csys.increment()['numeric'][freqAxis]#--- frequency increment
+        freqExtent=ia.shape()[freqAxis]#--- get the length of the freq axis
+        fPix=np.arange(0,freqExtent,1)
+        freqVals=freqRefVal+((fPix-freqRefPix)*freqIncr)
+
+        #--- SHAPE OF IMAGE IN RA/DEC
+        RAExtent=ia.shape()[0]
+        DecExtent=ia.shape()[1]
+
+        raAxis=inp_csys.findcoordinate(type='direction')['pixel'][0]#--- determine which axis is the RA axis
+        decAxis=inp_csys.findcoordinate(type='direction')['pixel'][1]#--- determine which axis is the dec axis
+        raIncr=inp_csys.increment()['numeric'][raAxis]
+        decIncr=inp_csys.increment()['numeric'][decAxis]
+
+        #--- GET BEAM INFORMATION
+        beamDict=ia.restoringbeam()
+        try:
+                bMaj=str(beamDict['major']['value'])+str(beamDict['major']['unit'])#--- get the synthesised beam major axis properties
+                bMin=str(beamDict['minor']['value'])+str(beamDict['minor']['unit'])#--- get the synthesised beam minor axis properties
+                bPA=str(beamDict['positionangle']['value'])+str(beamDict['positionangle']['unit'])#--- get the synthesised beam position angle properties
+
+        except KeyError:
+                beamDictL=beamDict['beams']['*0']['*0']
+                bMaj=str(beamDictL['major']['value'])+str(beamDictL['major']['unit'])#--- get the synthesised beam major axis properties
+                bMin=str(beamDictL['minor']['value'])+str(beamDictL['minor']['unit'])#--- get the synthesised beam minor axis properties
+                bPA=str(beamDictL['positionangle']['value'])+str(beamDictL['positionangle']['unit'])#--- get the synthesised beam position angle properties
+
+
+        #--- FIND PEAK POSITION (as in the brightest pixel in the whole cube)
+        #--- We will then extract a spectrum at that position.
+        warning=""
+        maxFitDict=ia.maxfit()
+
+        mF_Dec=maxFitDict['component0']['shape']['direction']['m1']['value']#---Dec position of peak in rad
+        mF_RA=maxFitDict['component0']['shape']['direction']['m0']['value']#---RA position of peak in rad
+
+        #--- Make sure peak position is sensible (if is is >100 pixels from centre set position to centre)
+        offsetX=np.sqrt((int(np.floor(RAExtent/2.0))-int(np.ceil(inp_csys.topixel([mF_RA,mF_Dec])['numeric'][0])))**2.0)
+        offsetY=np.sqrt((int(np.floor(DecExtent/2.0))-int(np.ceil(inp_csys.topixel([mF_RA,mF_Dec])['numeric'][1])))**2.0)
+        if (offsetX > 100.0) or (offsetY > 100.0):
+                print "================================================================================================"
+                print "\n\n Possible non-detection for "+sourName+" setting spectra pixel to centre pixel "+str(int(np.floor(RAExtent/2.0)))+","+(int(np.floor(DecExtent/2.0)))+" \n\n"
+                print "================================================================================================"
+
+                posPixStrHigh=str(int(np.floor(RAExtent/2.0)))+","+(int(np.floor(DecExtent/2.0)))#--- Pixel coords cos the work better
+                posPixStrLow=str(int(np.floor(RAExtent/2.0))+1)+","+(int(np.floor(DecExtent/2.0))+1)
+
+                warning="#possible non-detection!!!\n"
+
+        else:
+                warning=""
+                posPixStrHigh=str(int(np.ceil(inp_csys.topixel([mF_RA,mF_Dec])['numeric'][0])))+'pix, '+str(int(np.ceil(inp_csys.topixel([mF_RA,mF_Dec])['numeric'][1])))+'pix'#--- Pixel coords cos the work better
+                posPixStrLow=str(int(np.ceil(inp_csys.topixel([mF_RA,mF_Dec])['numeric'][0])))+'pix, '+str(int(np.ceil(inp_csys.topixel([mF_RA,mF_Dec])['numeric'][1])))+'pix'
+
+                posStr=str(360.0+np.degrees(mF_RA))+"\t"+str(np.degrees(mF_Dec))#---conversion from rad to decimal degrees of peak position
+                posStrLow=str(360.0+np.degrees(mF_RA-(raIncr/1.5)))+"\t"+str(np.degrees(mF_Dec-(decIncr/1.5)))#---conversion from rad to decimal degrees -half pixel
+                posStrHigh=str(360.0+np.degrees(mF_RA+(raIncr/1.5)))+"\t"+str(np.degrees(mF_Dec+(decIncr/1.5)))#---conversion from rad to decimal degrees +half pixel
+
+                #--- CONVERT TO RA AND DEC in CASA FORMAT
+                raDecStr=Deg_to_RADecCASA(posStr)
+                raDecStrLow=Deg_to_RADecCASA(posStrLow)
+                raDecStrHigh=Deg_to_RADecCASA(posStrHigh)
+
+                #--- define some CASA regions
+                ellStr="ellipse[["+raDecStr+"],["+bMaj+","+bMin+"],"+bPA+"]"
+                circStr="circle[["+raDecStr+"],"+bMaj+"]"
+
+
+        boxStr="box[["+posPixStrLow+"],["+posPixStrHigh+"]]"
+        print boxStr, '!!!!! CHEESE !!!!!'
+        #boxStr="box[[124pix, 118pix],[124pix, 118pix]]"
+        #print boxStr, '!!!!! PEAK MANUAL OVERWRITE !!!!!'
+
+        #--- CLOSE IMAGE
+        ia.done()
+        ia.close()
+
+        #print PBtargImage
+        #--- Get peak flux at brightest pixel position from the pbcor image.
+        imstat_dict=imstat(imagename=targImage, axes=[0,1], region=boxStr, box="", chans="", stokes="", listit=True, verbose=True, mask="", stretch=False, logfile="", append=True, algorithm='classic',fence=-1, center="mean", lside=True, zscore=-1, maxiter=-1, clmethod="auto", niter=3)
+
+
+        print specPath+sourName+'_spec.txt'
+        np.savetxt(specPath+sourName+'_spec.txt',np.c_[freqVals,imstat_dict['sum']],header=warning+'#freq[Hz]\tpeak flux[Jy/beam]')
+
+        imageSpecFile=specPath+sourName+'_spec.txt'
+
+        return imageSpecFile
+
+################################################################################
+
+def getSourcePos2(targImage,position,specPath,sourNum, bMaj, bMin, bPA):
+        #--- AS ABOVE EXCEPT EXTRACT SPECTRUM AT A GIVEN POSITION
+        #--- Function to get useful information about the image file, and extract the spectrum at a given position.
+        #--- Saves spectrum to textfile and returns position of peak
+
+        ia.done()
+        #--- OPEN IMAGE
+        ia.open(targImage)
+
+        #--- Source names
+        sourName=re.split('/',targImage)[-1]
+        sourName='/'+sourName
+        #--- GET AXIS INFORMATION
+        inp_csys=ia.coordsys()
+        freqAxis=inp_csys.findcoordinate(type='spectral')['pixel'][0]#--- determine which axis is the freq axis
+        freqRefPix=inp_csys.referencepixel()['numeric'][freqAxis]#--- frequency axis reference pixel
+        freqRefVal=inp_csys.referencevalue()['numeric'][freqAxis]#--- frequency axis reference value (in Hz)
+        freqIncr=inp_csys.increment()['numeric'][freqAxis]#--- frequency increment
+        freqExtent=ia.shape()[freqAxis]#--- get the length of the freq axis
+        fPix=np.arange(0,freqExtent,1)
+        freqVals=freqRefVal+((fPix-freqRefPix)*freqIncr)
+
+        #--- SHAPE OF IMAGE IN RA/DEC
+        RAExtent=ia.shape()[0]
+        DecExtent=ia.shape()[1]
+
+        raAxis=inp_csys.findcoordinate(type='direction')['pixel'][0]#--- determine which axis is the RA axis
+        decAxis=inp_csys.findcoordinate(type='direction')['pixel'][1]#--- determine which axis is the dec axis
+        raIncr=inp_csys.increment()['numeric'][raAxis]
+        decIncr=inp_csys.increment()['numeric'][decAxis]
+
+        #--- BEAM INFORMATION FROM SOURCE IS INCLUDED IN FUNC DEF
+
+
+
+        #--- CONVERT RA DEC TO RADIANS
+        warning=""
+        """
+        Deg=RADec_to_Deg(position)
+        raRad=float(re.split('\s+',Deg)[0])/(180.0/np.pi)
+        decRad=float(re.split('\s+',Deg)[1])/(180.0/np.pi)
+        mF_Dec=decRad#maxFitDict['component0']['shape']['direction']['m1']['value']#---Dec position of peak in rad
+        mF_RA=raRad#maxFitDict['component0']['shape']['direction']['m0']['value']#---RA position of peak in rad
+        posPixStrHigh=str(int(np.ceil(inp_csys.topixel([mF_RA,mF_Dec])['numeric'][0])))+'pix, '+str(int(np.ceil(inp_csys.topixel([mF_RA,mF_Dec])['numeric'][1])))+'pix'#--- Pixel coords cos the work better
+        posPixStrLow=str(int(np.ceil(inp_csys.topixel([mF_RA,mF_Dec])['numeric'][0])))+'pix, '+str(int(np.ceil(inp_csys.topixel([mF_RA,mF_Dec])['numeric'][1])))+'pix'
+        posStr=str(360.0+np.degrees(mF_RA))+"\t"+str(np.degrees(mF_Dec))#---conversion from rad to decimal degrees of peak position
+        posStrLow=str(360.0+np.degrees(mF_RA-(raIncr/1.5)))+"\t"+str(np.degrees(mF_Dec-(decIncr/1.5)))#---conversion from rad to decimal degrees -half pixel
+        posStrHigh=str(360.0+np.degrees(mF_RA+(raIncr/1.5)))+"\t"+str(np.degrees(mF_Dec+(decIncr/1.5)))#---conversion from rad to decimal degrees +half pixel
+        #--- CONVERT TO RA AND DEC in CASA FORMAT
+        raDecStr=Deg_to_RADecCASA(posStr)
+        raDecStrLow=Deg_to_RADecCASA(posStrLow)
+        raDecStrHigh=Deg_to_RADecCASA(posStrHigh)"""
+
+        #--- define some CASA regions
+        positionRA=re.split('\t',position)[0]
+        positionDec=re.sub(':','.',re.split('\t',position)[1])
+        ellStr="ellipse[["+positionRA+","+positionDec+"],["+bMaj+","+bMin+"],"+bPA+"]"
+        print ellStr
+        circStr="circle[["+positionRA+","+positionDec+"],"+bMaj+"]"
+
+        """
+        boxStr="box[["+posPixStrLow+"],["+posPixStrHigh+"]]"
+        print '\n!!! AAAAAAAAA!!!\n'
+        print boxStr
+        print '\n!!! BBBBBBBBB!!!\n'
+        """
+
+        #--- CLOSE IMAGE
+        ia.done()
+
+
+        #print PBtargImage
+        #--- Get peak flux at brightest pixel position from the pbcor image.
+        imstat_dict=imstat(imagename=targImage, axes=[0,1], region=ellStr, box="", chans="", stokes="", listit=True, verbose=True, mask="", stretch=False, logfile="", append=True, algorithm='classic',fence=-1, center="mean", lside=True, zscore=-1, maxiter=-1, clmethod="auto", niter=3)
+
+
+        print specPath+sourName+'_secndOnSource_'+sourNum+'_spec.txt'
+        np.savetxt(specPath+sourName+'_secndOnSource_'+sourNum+'_spec.txt',np.c_[freqVals,imstat_dict['flux']],header=warning+'#freq[Hz]\tpeak flux[Jy/beam]')
+
+        imageSpecFile=specPath+sourName+'_secndOnSource_'+sourNum+'_spec.txt'
+
+        return imageSpecFile
+LumberJackTask_LinuxVersion/boot_lumberjack.py0000644000720500003160000000171413726116351021640 0ustar  aavisonusers6import os
+import re
+cwd = os.getcwd()
+
+f = open('lumberjack_cli.py','r')
+f2 = open('lumberjack_cli2.py','w')
+print ">> Updating lumberjack_cli.py to lumberjack_cli2.py"
+for line in f.readlines():
+    if line.lstrip().startswith('pathname'):
+        print >> f2, re.split('p',line)[0]+'pathname="file://'+cwd+'/"'
+    else:
+        print >> f2, line.rstrip()
+    
+f.close()
+f2.close()
+
+
+f3 = open('load_lumberjack.py','r')
+f4 = open('load_lumberjack2.py','w')
+print ">> Updating load_lumberjack.py to load_lumberjack2.py"
+for line in f3.readlines():
+    if line.startswith('if sys.path[1]'):
+        print >> f4, re.split('=', line)[0]+'= \''+cwd+'\':'
+    elif line.startswith('  sys.path.insert'):
+        print >> f4, re.split(',', line)[0]+', \''+cwd+'\')'
+    elif line.startswith('task_location'):
+        print >> f4, re.split('=', line)[0]+'= \''+cwd+'\''
+    else:
+        print >> f4, line.rstrip()
+    
+f3.close()
+f4.close()
+
+
+
+execfile('load_lumberjack2.py')
+
+
+LumberJackTask_LinuxVersion/lumberjack_cli.py0000644000720500003160000003046513726116375021457 0ustar  aavisonusers6#
+# This file was generated using xslt from its XML file
+#
+# Copyright 2014, Associated Universities Inc., Washington DC
+#
+import sys
+import os
+import datetime
+#from casac import *
+import casac
+import string
+import time
+import inspect
+import numpy
+from casa_stack_manip import stack_frame_find
+from odict import odict
+from types import *
+from task_lumberjack import lumberjack
+class lumberjack_cli_:
+    __name__ = "lumberjack"
+    rkey = None
+    i_am_a_casapy_task = None
+    # The existence of the i_am_a_casapy_task attribute allows help()
+    # (and other) to treat casapy tasks as a special case.
+
+    def __init__(self) :
+       self.__bases__ = (lumberjack_cli_,)
+       self.__doc__ = self.__call__.__doc__
+
+       self.parameters={'vis':None, 'spw':None, 'field':None, 'secsour':None, 'stddevfact':None, }
+
+
+    def result(self, key=None):
+            #### and add any that have completed...
+            return None
+
+
+    def __call__(self, vis=None, spw=None, field=None, secsour=None, stddevfact=None, ):
+
+        """Find line free channels to use in continuum imaging.
+
+        Detailed Description:
+
+        Find spectral channels free of spectral line emission to aid in the processes of continuum imaging.
+        
+        Arguments :
+                vis: name of input visibility file
+                   Default Value: 
+
+                spw: Spectral window 
+                   Default Value: 
+
+                field: Field Name
+                   Default Value: 
+
+                secsour: File with positions and properties of Secondary Sources
+                   Default Value: 
+
+                stddevfact: Standard deviation factor 
+                   Default Value: 
+
+        Returns: void
+
+        Example :
+
+
+            Task to find channels free of molecular emission lines to provide users with line free channels to use in continuum only imaging.
+
+            Outputs proposed line free channels to [field]_SPW_[spw]_LineFreeChans.txt
+
+            Intended to be used within the ALMA data directory structure, as downloaded from the ALMA Archive.
+
+            vis -- Name of fully calibrated input visibility file, within the 'calibrated' directory of an ALMA Archive product
+               default: none; example: vis='ngc5921.ms'
+
+            field -- Select field in which to find lines.  Use field name(s) *ONLY*.
+                  
+            spw -- Select a *single* spectral window in which to find lines
+
+            secsour -- User defined file for extracting spectra a position
+                    "sourceX     RA[hh:mm:ss.000]    Dec[dd:mm:ss.000]   Bmaj*   Bmin*   BPA*"
+                    " *fitted 2D Gaussian major, minor axis and position angle."
+
+            stddevfact --  Standard deviation factor for sigma clipping.
+              default = 1.5
+
+        
+        """
+        if not hasattr(self, "__globals__") or self.__globals__ == None :
+           self.__globals__=stack_frame_find( )
+        #casac = self.__globals__['casac']
+        casalog = self.__globals__['casalog']
+        casa = self.__globals__['casa']
+        #casalog = casac.casac.logsink()
+        self.__globals__['__last_task'] = 'lumberjack'
+        self.__globals__['taskname'] = 'lumberjack'
+        ###
+        self.__globals__['update_params'](func=self.__globals__['taskname'],printtext=False,ipython_globals=self.__globals__)
+        ###
+        ###
+        #Handle globals or user over-ride of arguments
+        #
+        if type(self.__call__.func_defaults) is NoneType:
+            function_signature_defaults={}
+        else:
+            function_signature_defaults=dict(zip(self.__call__.func_code.co_varnames[1:],self.__call__.func_defaults))
+        useLocalDefaults = False
+
+        for item in function_signature_defaults.iteritems():
+                key,val = item
+                keyVal = eval(key)
+                if (keyVal == None):
+                        #user hasn't set it - use global/default
+                        pass
+                else:
+                        #user has set it - use over-ride
+                        if (key != 'self') :
+                           useLocalDefaults = True
+
+        myparams = {}
+        if useLocalDefaults :
+           for item in function_signature_defaults.iteritems():
+               key,val = item
+               keyVal = eval(key)
+               exec('myparams[key] = keyVal')
+               self.parameters[key] = keyVal
+               if (keyVal == None):
+                   exec('myparams[key] = '+ key + ' = self.itsdefault(key)')
+                   keyVal = eval(key)
+                   if(type(keyVal) == dict) :
+                      if len(keyVal) > 0 :
+                         exec('myparams[key] = ' + key + ' = keyVal[len(keyVal)-1][\'value\']')
+                      else :
+                         exec('myparams[key] = ' + key + ' = {}')
+
+        else :
+            print ''
+
+            myparams['vis'] = vis = self.parameters['vis']
+            myparams['spw'] = spw = self.parameters['spw']
+            myparams['field'] = field = self.parameters['field']
+            myparams['secsour'] = secsour = self.parameters['secsour']
+            myparams['stddevfact'] = stddevfact = self.parameters['stddevfact']
+
+
+        result = None
+
+#
+#    The following is work around to avoid a bug with current python translation
+#
+        mytmp = {}
+
+        mytmp['vis'] = vis
+        mytmp['spw'] = spw
+        mytmp['field'] = field
+        mytmp['secsour'] = secsour
+        mytmp['stddevfact'] = stddevfact
+        pathname="file:///raid1/scratch/aavison/LJ_2020/"
+        trec = casac.casac.utils().torecord(pathname+'lumberjack.xml')
+
+        casalog.origin('lumberjack')
+        try :
+          #if not trec.has_key('lumberjack') or not casac.casac.utils().verify(mytmp, trec['lumberjack']) :
+            #return False
+
+          casac.casac.utils().verify(mytmp, trec['lumberjack'], True)
+          scriptstr=['']
+          saveinputs = self.__globals__['saveinputs']
+
+          # Save .last file for this task execution. MPI servers don't write it (CASR-329).
+          from mpi4casa.MPIEnvironment import MPIEnvironment
+          do_full_logging = MPIEnvironment.is_mpi_disabled_or_client()
+          if type(self.__call__.func_defaults) is NoneType:
+              saveinputs=''
+          else:
+              saveinputs('lumberjack', 'lumberjack.last', myparams, self.__globals__,scriptstr=scriptstr, do_save_inputs=do_full_logging)
+
+          tname = 'lumberjack'
+          spaces = ' '*(18-len(tname))
+          casalog.post('\n##########################################'+
+                       '\n##### Begin Task: ' + tname + spaces + ' #####')
+          # Don't do telemetry from MPI servers (CASR-329)
+          if do_full_logging and casa['state']['telemetry-enabled']:
+              #casalog.poststat('Begin Task: ' + tname)
+              task_starttime = str(datetime.datetime.now())
+          if type(self.__call__.func_defaults) is NoneType:
+              casalog.post(scriptstr[0]+'\n', 'INFO')
+          else:
+              casalog.post(scriptstr[1][1:]+'\n', 'INFO')
+
+          # Effective call to the task as defined in gcwrap/python/scripts/task_*
+          result = lumberjack(vis, spw, field, secsour, stddevfact)
+
+          if do_full_logging and casa['state']['telemetry-enabled']:
+              task_endtime = str(datetime.datetime.now())
+              casalog.poststat( 'Task ' + tname + ' complete. Start time: ' + task_starttime + ' End time: ' + task_endtime )
+          casalog.post('##### End Task: ' + tname + '  ' + spaces + ' #####'+
+                       '\n##########################################')
+
+        except Exception, instance:
+          if(self.__globals__.has_key('__rethrow_casa_exceptions') and self.__globals__['__rethrow_casa_exceptions']) :
+             raise
+          else :
+             #print '**** Error **** ',instance
+             tname = 'lumberjack'
+             casalog.post('An error occurred running task '+tname+'.', 'ERROR')
+             pass
+        casalog.origin('')
+
+        return result
+#
+#
+#
+#    def paramgui(self, useGlobals=True, ipython_globals=None):
+#        """
+#        Opens a parameter GUI for this task.  If useGlobals is true, then any relevant global parameter settings are used.
+#        """
+#        import paramgui
+#        if not hasattr(self, "__globals__") or self.__globals__ == None :
+#           self.__globals__=stack_frame_find( )
+#
+#        if useGlobals:
+#            if ipython_globals == None:
+#                myf=self.__globals__
+#            else:
+#                myf=ipython_globals
+#
+#            paramgui.setGlobals(myf)
+#        else:
+#            paramgui.setGlobals({})
+#
+#        paramgui.runTask('lumberjack', myf['_ip'])
+#        paramgui.setGlobals({})
+#
+#
+#
+#
+    def defaults(self, param=None, ipython_globals=None, paramvalue=None, subparam=None):
+        if not hasattr(self, "__globals__") or self.__globals__ == None :
+           self.__globals__=stack_frame_find( )
+        if ipython_globals == None:
+            myf=self.__globals__
+        else:
+            myf=ipython_globals
+
+        a = odict()
+        a['vis']  = ''
+        a['spw']  = ''
+        a['field']  = ''
+        a['secsour']  = ''
+        a['stddevfact']  = ''
+
+
+### This function sets the default values but also will return the list of
+### parameters or the default value of a given parameter
+        if(param == None):
+                myf['__set_default_parameters'](a)
+        elif(param == 'paramkeys'):
+                return a.keys()
+        else:
+            if(paramvalue==None and subparam==None):
+               if(a.has_key(param)):
+                  return a[param]
+               else:
+                  return self.itsdefault(param)
+            else:
+               retval=a[param]
+               if(type(a[param])==dict):
+                  for k in range(len(a[param])):
+                     valornotval='value'
+                     if(a[param][k].has_key('notvalue')):
+                        valornotval='notvalue'
+                     if((a[param][k][valornotval])==paramvalue):
+                        retval=a[param][k].copy()
+                        retval.pop(valornotval)
+                        if(subparam != None):
+                           if(retval.has_key(subparam)):
+                              retval=retval[subparam]
+                           else:
+                              retval=self.itsdefault(subparam)
+                     else:
+                        retval=self.itsdefault(subparam)
+               return retval
+
+
+#
+#
+    def check_params(self, param=None, value=None, ipython_globals=None):
+      if ipython_globals == None:
+          myf=self.__globals__
+      else:
+          myf=ipython_globals
+#      print 'param:', param, 'value:', value
+      try :
+         if str(type(value)) != "<type 'instance'>" :
+            value0 = value
+            value = myf['cu'].expandparam(param, value)
+            matchtype = False
+            if(type(value) == numpy.ndarray):
+               if(type(value) == type(value0)):
+                  myf[param] = value.tolist()
+               else:
+                  #print 'value:', value, 'value0:', value0
+                  #print 'type(value):', type(value), 'type(value0):', type(value0)
+                  myf[param] = value0
+                  if type(value0) != list :
+                     matchtype = True
+            else :
+               myf[param] = value
+            value = myf['cu'].verifyparam({param:value})
+            if matchtype:
+               value = False
+      except Exception, instance:
+         #ignore the exception and just return it unchecked
+         myf[param] = value
+      return value
+#
+#
+    def description(self, key='lumberjack', subkey=None):
+        desc={'lumberjack': 'Find line free channels to use in continuum imaging.',
+               'vis': 'name of input visibility file',
+               'spw': 'Spectral window ',
+               'field': 'Field Name',
+               'secsour': 'File with positions and properties of Secondary Sources',
+               'stddevfact': 'Standard deviation factor ',
+
+              }
+
+#
+# Set subfields defaults if needed
+#
+
+        if(desc.has_key(key)) :
+           return desc[key]
+
+    def itsdefault(self, paramname) :
+        a = {}
+        a['vis']  = ''
+        a['spw']  = ''
+        a['field']  = ''
+        a['secsour']  = ''
+        a['stddevfact']  = ''
+
+        #a = sys._getframe(len(inspect.stack())-1).f_globals
+
+        if a.has_key(paramname) :
+              return a[paramname]
+lumberjack_cli = lumberjack_cli_()
+
