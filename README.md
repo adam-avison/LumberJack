@@ -11,16 +11,16 @@ LumberJack is now available as:
  
 ## Download
 ### Task version
- - [macOS Version for CASA 5.6.x](https://github.com/adam-avison/LumberJack/blob/master/LumberJackTask_MacVersion.tar) 
- - [Linux Version for CASA 5.6.x](https://github.com/adam-avison/LumberJack/blob/master/LumberJackTask_LinuxVersion.tar)
+ - macOS Version for CASA 5.6.x: Take a copy of the Functions/ directory and the MacTaskVersion/ directory. 
+ - Linux Version for CASA 5.6.x: Take a copy of the Functions/ directory and the LinuxTaskVersion/ directory. 
 
 ## Build 
 ### Task version
 #### macOS
-1. Download the Mac Version tar file above.
-2. Untar with `tar xvf LumberJackTask_MacVersion.tar` and `cd` into the resultant `LumberJackTask_MacVersion/` directory.
+1. Download copies of the both the `MacTaskVersion/` directory and the `Functions/` directory above. Save the `Functions/` directory *within* the `MacTaskVersion/` directory.
+2. `cd` into your `MacTaskVersion/` directory.
 3. `cd` again into the `Functions/` directory. You will need to set the parameter auPath in the scripts calcFuncs.py (line 5) and measFuncs.py (line 13) to the location of the CASA analysis utilities on your machine. Analysis Utils can be downloaded from: https://casaguides.nrao.edu/index.php/Analysis_Utilities 
-4. `cd ../` back to `LumberJackTask_MacVersion` and start your local version of CASA (should be 5.6+, not yet tested in 5.7 or 6.x).
+4. `cd ../` back to `MacTaskVersion/` and start your local version of CASA (should be 5.6+, not yet tested in 5.7 or 6.x).
 5. At the CASA prompt:
 ```python
 CASA <1>: !buildmytasks
@@ -42,10 +42,10 @@ secsour             =         ''        #  File with positions and properties of
 stddevfact          =         ''        #  Standard deviation factor
 ```
 #### Linux
-1. Download the Linux Version tar file above.
-2. Untar with `tar xvf LumberJackTask_LinuxVersion.tar` and `cd` into the resultant `LumberJackTask_LinuxVersion/` directory.
+1. Download copies of the both the `LinuxTaskVersion/` directory and the `Functions/` directory above. Save the `Functions/` directory *within* the `LinuxTaskVersion/` directory.
+2. `cd` into your `LinuxTaskVersion/` directory.
 3. `cd` again into the `Functions/` directory. You will need to set the parameter auPath in the scripts calcFuncs.py (line 5) and measFuncs.py (line 13) to the location of the CASA analysis utilities on your machine. Analysis Utils can be downloaded from: https://casaguides.nrao.edu/index.php/Analysis_Utilities 
-4. `cd ../` back to `LumberJackTask_LinuxVersion/`and start your local version of CASA (should be 5.6+, not yet tested in 5.7 or 6.x).
+4. `cd ../` back to `LinuxTaskVersion/`and start your local version of CASA (should be 5.6+, not yet tested in 5.7 or 6.x).
 5.  At the CASA prompt:
 ```python
 CASA <1>: execfile('boot_lumberjack.py')
