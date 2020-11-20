@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" ?>
+<casaxml xmlns="http://casa.nrao.edu/schema/psetTypes.html"
+xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+xsi:schemaLocation="http://casa.nrao.edu/schema/casa.xsd
+file:///opt/casa/code/xmlcasa/xml/casa.xsd">
+
+    <task type="function" name="lumberjack">
+        <shortdescription>Find line free channels to exclude in continuum imaging.</shortdescription>
+
+        <description>
+        Find spectral channels free of spectral line emission to aid in the processes of continuum imaging.
+        </description>
+
+        <input>
+            <!-- VIS -->
+            <param type="string" name="vis" kind="ms" mustexist="true">
+            <description>name of input visibility file</description>
+            <value></value>
+            </param>
+
+            <!-- SPW -->
+            <param type="any" name="spw">
+            <description>Spectral window </description>
+            <any type="variant"/>
+            <value type="string"></value>
+            </param>
+
+            <!-- FIELD -->
+            <param type="string" name="field">
+            <description>Field Name</description>
+            <value></value>
+            </param>
+
+            <!-- Tsys
+            <param type="any" name="tsys">
+            <description>System Temperature </description>
+            <any type="variant"/>
+            <value type="string"></value>
+            </param>-->
+
+            <!-- Secondary Source File -->
+            <param type="string" name="secsour">
+            <description>File with positions and properties of Secondary Sources</description>
+            <value></value>
+            </param>
+
+            <!-- stddevfact -->
+            <param type="any" name="stddevfact">
+            <description>Standard deviation factor </description>
+            <any type="variant"/>
+            <value type="string"></value>
+            </param>
+
+            <!-- OTHER THINGS WHICH CAN BE MADE VARIABLES
+
+
+            1) CLIP LEVEL
+            2) STANDARD DEVIATION THRESHOLD
+            3) OUTPUT FILE NAME
+
+            -->
+
+
+            <constraints>
+            <!-- DONT HAVE ANY YET! -->
+            </constraints>
+
+        </input>
+
+        <returns type="void"/> <!-- NOT SURE WHY THIS IS HERE BUT IT'S IN CLEAN -->
+
+        <example>
+
+            Task to find channels free of molecular emission lines to provide users with line free channels to use in continuum only imaging.
+
+            Outputs proposed line free channels to [field]_SPW_[spw]_LineFreeChans.txt
+
+            Intended to be used within the ALMA data directory structure, as downloaded from the ALMA Archive.
+
+            vis -- Name of fully calibrated input visibility file, within the 'calibrated' directory of an ALMA Archive product
+               default: none; example: vis='ngc5921.ms'
+
+            field -- Select field in which to find lines.  Use field name(s) *ONLY*.
+                  
+            spw -- Select a *single* spectral window in which to find lines
+
+            secsour -- User defined file for extracting spectra a position
+                    "sourceX     RA[hh:mm:ss.000]    Dec[dd:mm:ss.000]   Bmaj*   Bmin*   BPA*"
+                    " *fitted 2D Gaussian major, minor axis and position angle."
+
+            stddevfact --  Standard deviation factor for sigma clipping.
+              default = 1.5
+
+        </example>
+
+    </task>
+
+</casaxml>
